@@ -1,20 +1,17 @@
 import mongoose, {Document, Schema} from 'mongoose';
 
+export type ProviderInfo = { [key: string]: any } | Map<string, any>;
+
 export interface IAccount extends Document {
     userId: string;
     address: string;
     chainId: number;
     isDeployed: boolean;
-    balance?: string;
-    nonce?: number;
-    signerAddress?: string;
-    alchemyAccountId?: string;
-    requestId?: string;
-    salt?: string;
-    accountType?: string;
-    factoryAddress?: string;
-    factoryData?: string;
-    isActive?: boolean;
+    signerAddress: string;
+    providerInfo?: ProviderInfo;
+    accountType: string;
+    walletID: string;
+    isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -38,27 +35,7 @@ const accountSchema = new Schema<IAccount>({
         type: Boolean,
         default: false
     },
-    balance: {
-        type: String,
-        default: null
-    },
-    nonce: {
-        type: Number,
-        default: null
-    },
     signerAddress: {
-        type: String,
-        default: null
-    },
-    alchemyAccountId: {
-        type: String,
-        default: null
-    },
-    requestId: {
-        type: String,
-        default: null
-    },
-    salt: {
         type: String,
         default: null
     },
@@ -66,13 +43,14 @@ const accountSchema = new Schema<IAccount>({
         type: String,
         default: null
     },
-    factoryAddress: {
+    walletID: {
         type: String,
         default: null
     },
-    factoryData: {
-        type: String,
-        default: null
+    providerInfo: {
+        type: Map,
+        of: Schema.Types.Mixed,
+        default: {}
     },
     isActive: {
         type: Boolean,
@@ -92,8 +70,8 @@ const accountSchema = new Schema<IAccount>({
 
 accountSchema.set('toJSON', {
     transform: function (_doc, ret) {
-        ret.id = ret._id;
-        delete (ret as any)._id;
+        ret.id = ret._id?.toString();
+        delete ret._id;
         delete (ret as any).__v;
         return ret;
     }

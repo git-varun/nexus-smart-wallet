@@ -1,17 +1,6 @@
-import {config} from '../config';
-import {
-    PimlicoApiResponse,
-    PimlicoERC20PaymasterRequest,
-    PimlicoERC20PaymasterResponse,
-    PimlicoGasPriceResponse,
-    PimlicoSponsorUserOperationRequest,
-    PimlicoSponsorUserOperationResponse,
-    PimlicoTokenQuotesResponse,
-    PimlicoUserOperation,
-    PimlicoUserOperationEstimate,
-    PimlicoUserOperationReceipt,
-    PimlicoUserOperationStatus
-} from '../types/pimlicoTypes';
+import {config} from '../config/config';
+import {Address, hexToNumber, toHex} from "viem";
+import {UserOperation} from "viem/account-abstraction";
 
 // ==================== SIMPLE POC REQUEST FUNCTIONS ====================
 
@@ -42,11 +31,10 @@ const makePimlicoRequest = async <T>(
         throw new Error(`Pimlico API Error: ${response.status}`);
     }
 
-    const data = await response.json() as PimlicoApiResponse<T>;
+    const data: any = await response.json();
     if (data.error) {
         throw new Error(data.error.message);
     }
-
     return data.result as T;
 };
 
@@ -63,7 +51,7 @@ const bundlerRequest = async <T>(method: string, params: any[], chainId: number)
  * Paymaster request (v2 API)
  */
 const paymasterRequest = async <T>(method: string, params: any[]): Promise<T> => {
-    const chainId = config.alchemy.chainId;
+    const chainId = hexToNumber(params[2]);
     const apiKey = config.pimlico.apiKey;
     const url = `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${apiKey}`;
     return makePimlicoRequest<T>(url, method, params);
@@ -75,10 +63,10 @@ const paymasterRequest = async <T>(method: string, params: any[]): Promise<T> =>
  * Estimate user operation gas
  */
 export const estimateUserOperationGas = async (
-    userOp: Partial<PimlicoUserOperation>,
+    userOp: UserOperation,
     entryPoint: string,
     chainId: number
-): Promise<PimlicoUserOperationEstimate> => {
+) => {
     return bundlerRequest('eth_estimateUserOperationGas', [userOp, entryPoint], chainId);
 };
 
@@ -86,7 +74,7 @@ export const estimateUserOperationGas = async (
  * Send user operation
  */
 export const sendUserOperation = async (
-    userOp: PimlicoUserOperation,
+    userOp: UserOperation,
     entryPoint: string,
     chainId: number,
 ): Promise<string> => {
@@ -99,7 +87,7 @@ export const sendUserOperation = async (
 export const getUserOperationByHash = async (
     userOpHash: string,
     chainId: number,
-): Promise<PimlicoUserOperation | null> => {
+) => {
     return bundlerRequest('eth_getUserOperationByHash', [userOpHash], chainId);
 };
 
@@ -109,7 +97,7 @@ export const getUserOperationByHash = async (
 export const getUserOperationReceipt = async (
     userOpHash: string,
     chainId: number,
-): Promise<PimlicoUserOperationReceipt | null> => {
+) => {
     return bundlerRequest('eth_getUserOperationReceipt', [userOpHash], chainId);
 };
 
@@ -123,17 +111,17 @@ export const getSupportedEntryPoints = async (chainId: number): Promise<string[]
 /**
  * Get gas prices
  */
-export const getUserOperationGasPrice = async (chainId: number): Promise<PimlicoGasPriceResponse> => {
+export const getUserOperationGasPrice = async (chainId: number) => {
     return bundlerRequest('pimlico_getUserOperationGasPrice', [], chainId);
 };
 
 /**
  * Get user operation status
  */
-export const getUserOperationStatus = async (
+export const getUserOperationStatus_PM = async (
     userOpHash: string,
     chainId: number
-): Promise<PimlicoUserOperationStatus> => {
+) => {
     return bundlerRequest('pimlico_getUserOperationStatus', [userOpHash], chainId);
 };
 
@@ -142,24 +130,36 @@ export const getUserOperationStatus = async (
 /**
  * Sponsor user operation
  */
-export const sponsorUserOperation = async (
-    request: PimlicoSponsorUserOperationRequest
-): Promise<PimlicoSponsorUserOperationResponse> => {
+export const sponsorUserOperation = async (request: any) => {
+    const sponsorshipPolicyId = config.pimlico.sponsorshipPolicyId;
     const params = [
         request.userOperation,
         request.entryPoint,
-        request.sponsorshipPolicyId ? {sponsorshipPolicyId: request.sponsorshipPolicyId} : {}
+        {sponsorshipPolicyId}
     ];
     return paymasterRequest('pm_sponsorUserOperation', params);
+};
+
+export const getPimlicoPaymasterData = async (
+    userOperation: any, chainId: number | string, entryPoint: Address
+): Promise<any> => {
+    const sponsorshipPolicyId = config.pimlico.sponsorshipPolicyId;
+    const params = [
+        userOperation,
+        entryPoint,
+        toHex(chainId),
+        {sponsorshipPolicyId}
+    ];
+    return paymasterRequest('pm_getPaymasterStubData', params);
 };
 
 /**
  * Get token quotes for ERC-20 paymaster
  */
 export const getTokenQuotes = async (
-    userOp: Partial<PimlicoUserOperation>,
+    userOp: Partial<UserOperation>,
     entryPoint: string
-): Promise<PimlicoTokenQuotesResponse> => {
+) => {
     return paymasterRequest('pm_getTokenQuotes', [userOp, entryPoint]);
 };
 
@@ -167,8 +167,8 @@ export const getTokenQuotes = async (
  * Get ERC-20 paymaster data
  */
 export const getERC20PaymasterData = async (
-    request: PimlicoERC20PaymasterRequest
-): Promise<PimlicoERC20PaymasterResponse> => {
+    request: any
+) => {
     const params = [
         request.userOperation,
         request.entryPoint,
@@ -179,3 +179,7 @@ export const getERC20PaymasterData = async (
     ];
     return paymasterRequest('pm_getPaymasterData', params);
 };
+
+
+
+

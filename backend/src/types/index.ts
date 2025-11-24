@@ -60,10 +60,6 @@ export type {
 
 // Infrastructure types (database, logging, config)
 export type {
-    // Database document types
-    UserDocument,
-    SmartAccountDocument,
-    TransactionDocument,
     SessionDocument,
     ConnectionOptions,
 

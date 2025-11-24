@@ -1,0 +1,125 @@
+import {
+    toKernelSmartAccount,
+    toLightSmartAccount,
+    toNexusSmartAccount,
+    toSafeSmartAccount,
+    toSimpleSmartAccount,
+    toTrustSmartAccount
+} from "permissionless/accounts"
+import {
+    createBundlerClient,
+    createPaymasterClient,
+    entryPoint06Address,
+    entryPoint07Address,
+    SmartAccount
+} from "viem/account-abstraction"
+import {createServiceLogger, generateSalt, getCentralAccount, getRPC_URL} from "../utils";
+import {Address, createPublicClient, http} from "viem";
+import {baseSepolia} from "viem/chains";
+import {IAccount} from "../models";
+
+const logger = createServiceLogger("Accounts Script");
+
+export async function getAccount(walletID: string, accountDetails: IAccount): Promise<SmartAccount> {
+
+    const entryPoint = {
+        address: entryPoint07Address as `0x${string}`,
+        version: "0.7" as any
+    };
+    const smartAccountAddress: Address | undefined = accountDetails.isDeployed ? accountDetails.address as Address : undefined;
+    const saltNonce = BigInt(generateSalt(accountDetails.userId, accountDetails.chainId));
+
+
+    const publicClient = createPublicClient({
+        chain: baseSepolia,
+        transport: http()
+    })
+
+    const owner = await getCentralAccount();
+
+    // logger.info("Account Details", {entryPoint, owner, smartAccountAddress, saltNonce})
+
+    if (walletID === "KERNEL")
+        return toKernelSmartAccount({
+            client: publicClient,
+            owners: [owner],
+            entryPoint,
+            index: saltNonce,
+            address: smartAccountAddress,
+            version: entryPoint.version === "0.7" ? "0.3.1" : "0.2.4"
+        });
+
+    if (walletID === "SIMPLE")
+        return toSimpleSmartAccount({
+            owner,
+            client: publicClient,
+            entryPoint,
+            index: saltNonce,
+            address: smartAccountAddress
+        })
+
+    if (walletID === "ALCHEMY")
+        return toLightSmartAccount({
+            client: publicClient,
+            version: entryPoint.version === "0.7" ? "2.0.0" : "1.1.0",
+            entryPoint,
+            owner,
+            index: saltNonce,
+            address: smartAccountAddress,
+        })
+
+    if (walletID === "TRUST")
+        return toTrustSmartAccount({
+            client: publicClient,
+            entryPoint: {
+                address: entryPoint06Address as `0x${string}`,
+                version: "0.6"
+            },
+            owner,
+            index: saltNonce,
+            address: smartAccountAddress
+        })
+
+    if (walletID === "BICONOMY")
+        return toNexusSmartAccount({
+            owners: [owner],
+            client: publicClient,
+            entryPoint: {
+                address: entryPoint07Address,
+                version: "0.7"
+            },
+            version: "1.0.0",
+            index: saltNonce,
+            address: smartAccountAddress
+        })
+
+    if (walletID === "SAFE")
+        return toSafeSmartAccount({
+            client: publicClient,
+            owners: [owner],
+            version: "1.4.1",
+            entryPoint,
+            saltNonce,
+            address: smartAccountAddress
+        })
+
+    throw new Error(String("NOT SUPPORTED WALLET ID"));
+}
+
+export async function paymasterClient(paymasterID: string, chainId: number) {
+    const paymasterRPC = getRPC_URL(chainId, paymasterID);
+    logger.info("Paymaster RPC", paymasterRPC)
+
+    return createPaymasterClient({
+        transport: http(paymasterRPC),
+    })
+}
+
+export async function bundlerClient(walletID: string, chainId: number, bundlerID: string, paymasterID: string, accConfig: IAccount) {
+    const account = await getAccount(walletID, accConfig);
+    return createBundlerClient({
+        account,
+        paymaster: paymasterID === "ALCHEMY" ? undefined : await paymasterClient(paymasterID, chainId),
+        transport: http(getRPC_URL(chainId, bundlerID))
+    })
+}

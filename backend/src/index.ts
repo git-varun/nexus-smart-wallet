@@ -1,7 +1,7 @@
 import createApp from './app';
-import {config} from './config';
+import {config} from './config/config';
 import {createServiceLogger} from './utils';
-import {disconnectDatabase, initializeDatabase} from './database/init';
+import {closeDatabase, initializeDatabase} from './database';
 
 const logger = createServiceLogger('Server');
 
@@ -28,7 +28,7 @@ async function startServer() {
 
             server.close(async () => {
                 try {
-                    await disconnectDatabase();
+                    await closeDatabase();
                     logger.info('✅ Server stopped');
                     process.exit(0);
                 } catch (error) {

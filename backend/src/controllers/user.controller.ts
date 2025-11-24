@@ -212,7 +212,7 @@ export async function updateAvatarConfig(req: Request, res: Response) {
             }
         });
     } catch (error) {
-        console.error('Error updating avatar config:', error);
+        logger.error('Error updating avatar config:', Error(String(error)));
         res.status(500).json({
             success: false,
             error: {message: 'Internal server error', code: 'SERVER_ERROR'}

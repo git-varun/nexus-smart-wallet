@@ -28,6 +28,7 @@ router.get('/accounts/:address', requireAuth, accountController.getSmartAccountD
 
 
 // Transaction Routes (protected)
+router.post('/transactions/deploy', requireAuth, transactionController.deploySmartWallet)
 router.post('/transactions/send', requireAuth, transactionController.sendTransaction);
 router.get('/transactions/history', requireAuth, transactionController.getTransactionHistory);
 router.post('/transactions/estimate_gas', requireAuth, transactionController.getGasEstimation);

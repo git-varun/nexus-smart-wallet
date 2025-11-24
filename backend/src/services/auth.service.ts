@@ -1,6 +1,6 @@
 import {userRepository} from '../repositories';
 import {AuthStatusResult, SessionValidationResult} from '../types';
-import {config} from '../config';
+import {config} from '../config/config';
 import {createServiceLogger} from '../utils';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';

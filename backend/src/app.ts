@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import {validateConfig} from './config';
+import {validateConfig} from './config/config';
 import {errorHandlerMiddleware} from './middleware/errorHandler.middleware';
 import {routes} from './routes';
 import {createServiceLogger} from './utils';
@@ -32,6 +32,15 @@ async function createApp() {
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
 
+
+    // Somewhere at the start of your server setup (e.g., in app.ts or server.ts)
+
+// NOTE: This modifies the global BigInt prototype, which is generally acceptable
+// for server-side code that deals heavily with BigInts.
+    (BigInt.prototype as any).toJSON = function () {
+        // Convert BigInts to a string representation for JSON.stringify
+        return this.toString();
+    };
     // Simple request logging
     app.use((req, res, next) => {
         logger.info(`${req.method} ${req.path}`);

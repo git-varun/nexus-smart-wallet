@@ -1,22 +1,6 @@
 import {Document} from 'mongoose';
-import {Session, SmartAccount, Transaction, User} from './domain';
+import {Session} from './domain';
 
-// ============================================================================
-// INFRASTRUCTURE TYPES
-// ============================================================================
-
-// Database document types
-export interface UserDocument extends Omit<User, 'id'>, Document {
-    _id: string;
-}
-
-export interface SmartAccountDocument extends Omit<SmartAccount, 'id'>, Document {
-    _id: string;
-}
-
-export interface TransactionDocument extends Omit<Transaction, 'id'>, Document {
-    _id: string;
-}
 
 export interface SessionDocument extends Omit<Session, 'id'>, Document {
     _id: string;

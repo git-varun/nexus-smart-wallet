@@ -1,41 +1,58 @@
-import {Address} from 'viem';
 import {accountRepository} from '../repositories';
 import {createServiceLogger} from '../utils';
-import {requestAccount} from '../scripts/alchemyWalletApi';
 import {IAccount} from "../models";
+import {SUPPORTED_WALLETS} from "../config/config";
+import {getAccount} from "../scripts/permissionless";
 
 const logger = createServiceLogger('AccountService');
 
 export async function createUserAccount(
     userId: string,
     chainId: number,
+    walletID: string,
     accountType: string
 ): Promise<{ success: boolean, account?: IAccount, error?: Error | string }> {
     try {
 
-        logger.info('Creating new account', {userId, chainId, accountType});
+        logger.info('Creating new account', {userId, chainId, walletID, accountType});
 
-        const alchemyResponse = await requestAccount(userId, chainId, accountType);
-        const newAccount = await accountRepository.createAccount({
-            userId,
-            address: alchemyResponse.accountAddress as Address,
-            chainId,
-            isDeployed: false,
-            balance: '0',
-            nonce: 0,
-            signerAddress: "CENTRAL_WALLET",
-            alchemyAccountId: alchemyResponse.id,
-            accountType: accountType,
-            factoryAddress: alchemyResponse.counterfactualInfo?.factoryAddress,
-            factoryData: alchemyResponse.counterfactualInfo?.factoryData
-        });
-
-        logger.info('Created new account via Alchemy', newAccount);
-
-        return {
-            success: true,
-            account: newAccount
+        // Check for existing wallets
+        const accounts = await accountRepository.findBy({userId, chainId, walletID, accountType});
+        if (accounts.length !== 0) return {
+            success: false,
+            error: "Account already exists for the same provider and chain.",
         };
+
+        if (SUPPORTED_WALLETS.includes(walletID)) {
+            const account = await getAccount(walletID, accounts[0]);
+            const factoryInfo = await account.getFactoryArgs();
+            const newAccount = await accountRepository.createAccount(
+                {
+                    userId,
+                    address: account.address,
+                    chainId,
+                    isDeployed: false,
+                    isActive: false,
+                    signerAddress: "CENTRAL_WALLET",
+                    accountType,
+                    walletID,
+                    providerInfo: {
+                        factory: factoryInfo?.factory,
+                        factoryData: factoryInfo?.factoryData
+                    }
+                }
+            )
+            logger.info('Created new account via Alchemy', newAccount);
+            return {
+                success: true,
+                account: newAccount,
+            }
+        } else {
+            return {
+                success: false,
+                error: `An unsupported provider: ${walletID}. Currently only ALCHEMY, SAFE is supported.`
+            };
+        }
 
     } catch (error: any) {
         if (error?.message?.includes('already exists')) {
@@ -59,7 +76,7 @@ export async function createUserAccount(
     }
 }
 
-export async function getUserAccount(userId: string, chainId: number): Promise<{
+export async function getUserAccount(userId: string, chainId: number, walletID: string): Promise<{
     success: boolean;
     account?: IAccount;
     error?: string;
@@ -67,7 +84,11 @@ export async function getUserAccount(userId: string, chainId: number): Promise<{
     try {
         logger.info('Starting account lookup', {userId, chainId});
 
-        const chainAccount = await accountRepository.findBy({userId, chainId});
+        const chainAccount = await accountRepository.findBy({
+            userId,
+            chainId,
+            walletID
+        });
 
         if (!chainAccount.length) {
             return {
@@ -125,8 +146,7 @@ export async function getUserAccounts(userId: string, chainId: number): Promise<
     }
 }
 
-export async function getAccountDetails(address: string, chainId: number
-): Promise<{
+export async function getAccountDetails(address: string, chainId: number): Promise<{
     success: boolean;
     account?: IAccount;
     error?: string;

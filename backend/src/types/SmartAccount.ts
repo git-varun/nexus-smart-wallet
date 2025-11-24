@@ -1,4 +1,6 @@
 // Smart Account domain types
+import {Document} from "mongoose";
+
 export interface SmartAccount {
     id: string;
     userId: string;
@@ -18,17 +20,6 @@ export interface SmartAccount {
     updatedAt: Date;
 }
 
-export interface CreateSmartAccountInput {
-    userId: string;
-    address: string;
-    chainId: number;
-    isDeployed: boolean;
-    balance?: string;
-    nonce?: number;
-}
-
-export interface UpdateSmartAccountInput {
-    isDeployed?: boolean;
-    balance?: string;
-    nonce?: number;
+export interface SmartAccountDocument extends Omit<SmartAccount, 'id'>, Document {
+    _id: string;
 }

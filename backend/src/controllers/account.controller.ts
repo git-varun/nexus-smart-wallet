@@ -8,7 +8,9 @@ const logger = createServiceLogger('AccountController');
 export async function createSmartAccount(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
         const userId = getUserId(req);
+        const {chainId, walletID, accountType} = req.body;
 
+        // Validate UserId
         if (!userId) {
             res.status(401).json({
                 success: false,
@@ -19,10 +21,6 @@ export async function createSmartAccount(req: AuthenticatedRequest, res: Respons
             });
             return;
         }
-
-        // Extract chainId and accountType with defaults
-        const chainId = req.body.chainId || 84532; // Default to Base Sepolia
-        const accountType = 'la-v2'; // Default to Light Account v2
 
         // Validate chainId
         if (chainId <= 0) {
@@ -36,8 +34,20 @@ export async function createSmartAccount(req: AuthenticatedRequest, res: Respons
             return;
         }
 
-        // Validate accountType
-        if (accountType.trim().length === 0) {
+        // Validate WalletID
+        if (!walletID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'INVALID_WALLET_TYPE',
+                    message: 'Valid wallet type is required'
+                }
+            });
+            return;
+        }
+
+        // Validate AccountType
+        if (!accountType) {
             res.status(400).json({
                 success: false,
                 error: {
@@ -48,12 +58,14 @@ export async function createSmartAccount(req: AuthenticatedRequest, res: Respons
             return;
         }
 
+
         logger.info(`Creating account for user ${userId}`, {
             chainId,
-            accountType
+            walletID,
+            accountType,
         });
 
-        const result = await createUserAccount(userId, chainId, accountType);
+        const result = await createUserAccount(userId, chainId, walletID, accountType);
 
         if (result.success) {
             res.status(201).json({

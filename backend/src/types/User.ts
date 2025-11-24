@@ -1,4 +1,6 @@
 // User domain types
+import {Document} from "mongoose";
+
 export interface User {
     id: string;
     email?: string;
@@ -75,4 +77,8 @@ export interface UsernameAvailabilityCheck {
     username: string;
     available: boolean;
     suggestions?: string[];
+}
+
+export interface UserDocument extends Omit<User, 'id'>, Document {
+    _id: string;
 }

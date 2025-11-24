@@ -1,47 +1,31 @@
 import {userRepository} from '../repositories';
-import {CreateUserInput, User, UsernameAvailabilityCheck, UserProfileUpdate} from '../types/User';
+import {User, UsernameAvailabilityCheck, UserProfileUpdate} from '../types/User';
 import {IUser} from '../models';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import {createServiceLogger} from "../utils";
 
 const logger = createServiceLogger("UserService");
 
-export async function createUser(input: CreateUserInput): Promise<{
+export async function createUser(email: string, password: string): Promise<{
     success: boolean;
-    user?: User;
+    user?: IUser;
     error?: { message: string; code: string }
 }> {
     try {
         // Check if email already exists
-        if (input.email) {
-            const existingUser = await userRepository.findByEmail(input.email);
-            if (existingUser) {
-                return {
-                    success: false,
-                    error: {message: 'User with this email already exists', code: 'EMAIL_EXISTS'}
-                };
-            }
-        }
-
-        // Check if username already exists
-        if (input.username) {
-            const existingUsername = await userRepository.findByUsername(input.username);
-            if (existingUsername) {
-                return {
-                    success: false,
-                    error: {message: 'Username already taken', code: 'USERNAME_EXISTS'}
-                };
-            }
+        const existingUser = await userRepository.findByEmail(email);
+        if (existingUser) {
+            return {
+                success: false,
+                error: {message: 'User with this email already exists', code: 'EMAIL_EXISTS'}
+            };
         }
 
         // Hash password if provided
-        let hashedPassword = '';
-        if (input.password) {
-            hashedPassword = await bcrypt.hash(input.password, 12);
-        }
+        const hashedPassword = await bcrypt.hash(password, 12);
 
         const userData: any = {
-            ...input,
+            email,
             password: hashedPassword,
             preferences: {
                 theme: 'auto',
@@ -56,15 +40,20 @@ export async function createUser(input: CreateUserInput): Promise<{
 
         const createdUser = await userRepository.createUser(userData);
 
+        logger.info('User registration successful', {
+            userId: createdUser.id,
+            email: createdUser.email
+        });
+
         return {
             success: true,
-            user: transformUserToResponse(createdUser)
+            user: createdUser
         };
     } catch (error) {
         logger.error('Error creating user:', error as Error);
         return {
             success: false,
-            error: {message: 'Failed to create user', code: 'CREATION_FAILED'}
+            error: {message: 'Failed to create user', code: 'CREATION FAILED'}
         };
     }
 }

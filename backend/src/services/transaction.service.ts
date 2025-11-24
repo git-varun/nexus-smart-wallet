@@ -1,111 +1,190 @@
 import {transactionRepository} from '../repositories';
 import {createServiceLogger} from '../utils';
-import {wallet_getCallsStatus, wallet_prepareCalls, wallet_sendPreparedCalls} from "../scripts/alchemyWalletApi";
-import {getAddress, hexToNumber, isAddress} from 'viem'
+import {getAlchemyPaymasterStubData, getUserOperationByHash} from "../scripts/alchemyApi";
+import {getUserOperationGasPrice, getUserOperationStatus_PM} from "../scripts/pimlicoApi";
+import {getAddress, Hex, isAddress, parseEther, zeroAddress} from 'viem'
+import {entryPoint07Address, UserOperationReceipt} from "viem/account-abstraction";
 import {TransactionInfo, TransactionRequest} from '../types';
 import {getUserAccount} from "./account.service";
-import {IAccount, ITransaction} from "../models";
-import {getUserOperationByHash} from "../scripts/bundlerApi";
-import {getUserOperationGasPrice} from "../scripts/pimlicoApi";
+import {IAccount} from "../models";
+import {bundlerClient} from "../scripts/permissionless";
+import {updateAccount} from "../repositories/accountRepository";
+import {createTransaction} from "../repositories/transactionRepository";
 
 
 const logger = createServiceLogger('TransactionService');
 
-async function userAccount(userId: string, chainId: number): Promise<IAccount> {
-    const smartAccountResult = await getUserAccount(userId, chainId);
+async function userAccount(userId: string, chainId: number, walletID: string): Promise<IAccount> {
+    const smartAccountResult = await getUserAccount(userId, chainId, walletID);
     if (!smartAccountResult.success || !smartAccountResult.account) {
         throw new Error(smartAccountResult.error || 'Failed to get smart account');
     }
     return smartAccountResult.account;
 }
 
-// async function prepareUserOp(userId: string, chainId: number, bundler: string): Promise<any> {
-//     const account = await userAccount(userId, chainId);
-//     const result = await getGasPriceObject(chainId, bundler);
-//
-//     if (!result.success) {
-//         throw new Error('Error getting gas price');
-//     }
-//     const publicClient = createPublicClient({
-//         chain: baseSepolia,
-//         transport: http(`https://base-sepolia.g.alchemy.com/v2/I3POjlK37a4nA5GFoVdufRMKa5hbnxTd`),
-//     })
-//     const nonce = await publicClient.getTransactionCount({address: account.address as `0x${string}`});
-//
-//
-//     return {
-//         sender: account.address as `0x${string}`,
-//         nonce: toHex(nonce),
-//         callData: '0xa9059cbb0000000000000000000000004ba490f618148427b35c276eaa8d548e9cc62ad00000000000000000000000000000000000000000000000000000000000000001' as `0x${string}`,
-//
-//         callGasLimit: "0x0",
-//         verificationGasLimit: "0x0",
-//
-//         maxFeePerGas: result.gasPrice.fast.maxFeePerGas,
-//         maxPriorityFeePerGas: result.gasPrice.fast.maxPriorityFeePerGas,
-//
-//         factory: account.isDeployed ? undefined : account.factoryAddress as `0x${string}`,
-//         factoryData: account.isDeployed ? undefined : account.factoryData as `0x${string}`,
-//
-//         signature: "0xfffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c" as `0x${string}`
-//     }
-// }
+async function getPaymaster(paymasterID: string, userOption: any, entryPointAddress: `0x${string}`, chainId: number) {
+    if (paymasterID === "ALCHEMY") return getAlchemyPaymasterStubData(userOption, entryPointAddress, chainId)
+}
+
+async function getGasPrice(bundlerID: string, chainId: number) {
+    if (bundlerID === "PIMLICO") {
+        const result: any = await getUserOperationGasPrice(chainId);
+        return {
+            maxFeePerGas: BigInt(result?.gasPrice?.fast.maxFeePerGas),
+            maxPriorityFeePerGas: BigInt(result?.gasPrice?.fast.maxPriorityFeePerGas),
+        };
+    }
+}
 
 
-/**
- * Send a transaction using Alchemy Account Kit smart account integration
- */
-export async function sendTransaction(
-    userId: string,
-    chainId: number,
-    bundler: string,
-    request: TransactionRequest
-): Promise<{ success: boolean, transaction?: ITransaction, error?: string | Error }> {
+export async function deploySmartAccountService(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerID: string) {
+
     try {
-        // Validate recipient address
-        if (!isAddress(request.to)) {
-            throw new Error(`Invalid recipient address: ${request.to}`);
+        const accountDetails = await userAccount(userId, chainId, walletID);
+        if (accountDetails.isDeployed) throw Error(`Deployed account ${userId} already deployed`);
+        const gasPrice = await getGasPrice(bundlerID, accountDetails.chainId);
+        const factory = bundlerID === "KERNEL" ? {} : {
+            factory: accountDetails.providerInfo?.get("factory") as Hex,
+            factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
         }
 
-        // Get checksummed address
+        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerID, paymasterID, accountDetails);
+        let paymasterData = {};
+        if (paymasterID === "ALCHEMY") {
+            const userOp: any = await client.prepareUserOperation({
+                calls: [{
+                    to: zeroAddress,
+                    value: parseEther('0'),
+                }],
+
+                ...factory,
+                ...gasPrice
+            })
+            paymasterData = getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+        }
+
+        const hash = await client.sendUserOperation({
+            calls: [{
+                to: zeroAddress,
+                value: parseEther('0'),
+            }],
+
+            ...paymasterData,
+            ...factory,
+            ...gasPrice
+        })
+        const receipt: UserOperationReceipt = await client.waitForUserOperationReceipt({
+            hash
+        })
+
+        if (receipt) {
+            let updatedAcc: IAccount | null = null;
+            if (receipt.success) {
+                updatedAcc = await updateAccount(accountDetails.id, {
+                    isDeployed: true,
+                    isActive: true
+                })
+                logger.info("Updated smart account", updatedAcc);
+            }
+
+            const transaction = await createTransaction({
+                userId: accountDetails.userId,
+                accountId: accountDetails.address,
+                hash: receipt.receipt.transactionHash,
+                userOpHash: receipt.userOpHash,
+                chainId: accountDetails.chainId,
+                status: receipt.success ? "confirmed" : "failed"
+            })
+
+            logger.info("Transaction successfully created", transaction);
+
+            return {
+                success: true,
+                transaction: transaction,
+                account: updatedAcc,
+            };
+        }
+        return {
+            success: false,
+            transaction: hash,
+            account: null,
+        };
+    } catch (error) {
+        logger.error('Deploy transaction failed', error instanceof Error ? error : new Error(String(error)));
+        return {
+            success: false,
+            error
+        };
+    }
+
+}
+
+export async function sendTransaction(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerID: string, request: TransactionRequest) {
+    try {
+
+        logger.info('initiated', {userId, chainId, ...request});
+
+        if (!isAddress(request.to)) throw new Error(`Invalid recipient address: ${request.to}`);
         const checksummedTo = getAddress(request.to);
 
-        logger.info('initiated', {
-            userId,
-            chainId,
-            to: checksummedTo,
-            value: request.value?.toString(),
-            data: request.data
-        });
-
-        const account = await userAccount(userId, chainId);
-
-        let userOpHash: string = "";
-        if (bundler === 'ALCHEMY') {
-            const userOperation = await wallet_prepareCalls(account.address, chainId, request);
-            logger.info('Prepared User Operation', userOperation);
-            userOpHash = await wallet_sendPreparedCalls(userOperation);
-        } else {
-            throw new Error('Only alchemy is supported now')
+        const accountDetails = await userAccount(userId, chainId, walletID);
+        const gasPrice = await getGasPrice(bundlerID, accountDetails.chainId);
+        const factory = bundlerID === "KERNEL" ? {} : {
+            factory: accountDetails.providerInfo?.get("factory") as Hex,
+            factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
         }
-        const savedTransaction = await transactionRepository.createTransaction({
-            userId,
-            accountId: account.address,
-            hash: userOpHash,
-            userOpHash,
-            status: 'pending' as const,
-            chainId: chainId
-        });
 
-        logger.info('Transaction sent successfully', {
-            transactionId: savedTransaction.id,
-            userOpHash: userOpHash,
-            chainId
-        });
+        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerID, paymasterID, accountDetails);
 
+        let paymasterData;
+        if (paymasterID === "ALCHEMY") {
+            const userOp: any = await client.prepareUserOperation({
+                calls: [{
+                    to: zeroAddress,
+                    value: parseEther('0'),
+                }],
+
+                ...factory,
+                ...gasPrice
+            })
+            paymasterData = getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+        }
+
+        const hash = await client.sendUserOperation({
+            calls: [{
+                to: checksummedTo,
+                data: request.data,
+                value: parseEther(request.value?.toString() || "0")
+            }],
+
+            ...paymasterData,
+            ...gasPrice
+        })
+        const receipt: UserOperationReceipt = await client.waitForUserOperationReceipt({
+            hash
+        })
+
+        if (receipt) {
+
+            const transaction = await transactionRepository.createTransaction({
+                userId: accountDetails.userId,
+                accountId: accountDetails.address,
+                hash: receipt.receipt.transactionHash,
+                userOpHash: receipt.userOpHash,
+                chainId: accountDetails.chainId,
+                status: receipt.success ? "confirmed" : "failed"
+            })
+
+            logger.info("Transaction successfully created", transaction);
+
+            return {
+                success: true,
+                transaction: transaction,
+            };
+        }
         return {
-            success: true,
-            transaction: savedTransaction
+            success: false,
+            transaction: hash,
         };
     } catch (error) {
         logger.error('Transaction failed', error instanceof Error ? error : new Error(String(error)));
@@ -117,46 +196,60 @@ export async function sendTransaction(
     }
 }
 
-/**
- * Estimate gas for a transaction using Alchemy Account Kit
- */
 export async function estimateGas(
     userId: string,
     chainId: number,
-    bundler: string,
+    walletID: string,
+    paymasterID: string,
+    bundlerID: string,
     request: TransactionRequest
 ): Promise<{ success: boolean, gasEstimate?: any, error?: Error | string }> {
     try {
-        if (!isAddress(request.to)) {
-            throw new Error(`Invalid recipient address: ${request.to}`);
-        }
+
+        if (!isAddress(request.to)) throw new Error(`Invalid recipient address: ${request.to}`);
         const checksummedTo = getAddress(request.to);
 
-        logger.info('Estimating gas', {
-            userId,
-            chainId,
-            to: checksummedTo,
-            value: request.value?.toString(),
-        });
+        const accountDetails = await userAccount(userId, chainId, walletID);
+        const gasPrice = await getGasPrice(bundlerID, accountDetails.chainId);
+        const factory = bundlerID === "KERNEL" ? {} : {
+            factory: accountDetails.providerInfo?.get("factory") as Hex,
+            factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
+        };
+        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerID, paymasterID, accountDetails);
+        let paymaster;
+        if (paymasterID === "ALCHEMY") {
+            const userOp: any = await client.prepareUserOperation({
+                calls: [{
+                    to: zeroAddress,
+                    value: parseEther('0'),
+                }],
 
-        const account = await userAccount(userId, chainId);
+                ...factory,
+                ...gasPrice
+            })
+            paymaster = getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+        }
 
-        let userOperation;
-        if (bundler === 'ALCHEMY') userOperation = await wallet_prepareCalls(account.address, chainId, request);
-        else throw new Error('Only alchemy is supported now')
 
-        logger.info('Gas estimation completed', {userId, chainId, ...userOperation});
+        const gas = await client.estimateUserOperationGas({
+            calls: [{
+                to: checksummedTo,
+                data: request.data,
+                value: parseEther(request.value?.toString() || "0")
+            }],
 
+            ...factory,
+            ...paymaster,
+            ...gasPrice
+        })
+
+        if (!gas) return {
+            success: false,
+            gasEstimate: null
+        }
         return {
             success: true,
-            gasEstimate: {
-                maxPriorityFeePerGas: hexToNumber(userOperation.data.maxPriorityFeePerGas),
-                maxFeePerGas: hexToNumber(userOperation.data.maxFeePerGas),
-                preVerificationGas: hexToNumber(userOperation.data.preVerificationGas),
-                verificationGasLimit: hexToNumber(userOperation.data.verificationGasLimit),
-                callGasLimit: hexToNumber(userOperation.data.callGasLimit),
-                paymasterVerificationGasLimit: hexToNumber(userOperation.data.paymasterVerificationGasLimit),
-            },
+            gasEstimate: gas,
         };
 
     } catch (error) {
@@ -168,24 +261,24 @@ export async function estimateGas(
     }
 }
 
-
-export async function getUserOperationStatus(chainId: number, userOpHash?: string, callId?: string): Promise<{
+export async function getUserOperationStatus(chainId: number, userOpHash: string, bundlerID: string): Promise<{
     success: boolean,
     receipts?: TransactionInfo[],
     error?: Error | string
 }> {
     try {
-        logger.info('Getting user transaction stats', {callId, chainId});
+        logger.info('Getting user transaction stats', {bundlerID, chainId});
 
         let result: any;
-        if (callId) result = await wallet_getCallsStatus([callId]);
-        else if (userOpHash) result = await getUserOperationByHash(userOpHash);
-
-
-
-        if (!result.status || !result.receipts.length) {
-            throw new Error('Failed to send user operation');
+        if (bundlerID === "ALCHEMY") {
+            result = await getUserOperationByHash(userOpHash);
         }
+        if (bundlerID === "PIMLICO") {
+            result = await getUserOperationStatus_PM(userOpHash, chainId)
+        }
+
+
+        if (!result.status || !result.receipts.length) throw new Error('Failed to send user operation');
 
         result.receipts.forEach((receipt: {
             id: string,
@@ -251,31 +344,25 @@ export async function getUserTransactionHistory(userId: string, chainId?: number
     }
 }
 
-export async function getGasPriceObject(chainId: number, bundler: string): Promise<{
+export async function getGasPriceObject(chainId: number, bundlerID: string): Promise<{
     success: boolean,
     gasPrice?: any,
     error?: Error | string
 }> {
     try {
-        logger.info('Getting gas price', {chainId, bundler});
+        logger.info('Getting gas price', {chainId, bundlerID});
 
-        // const client = await publicClient(bundler, chainId)
-        // const feeData = await client.estimateFeesPerGas();
-        // const gasPrice = await client.getGasPrice();
-        // const gasPriceObject = {
-        //     maxFeePerGas: feeData.maxFeePerGas?.toString(),
-        //     maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString(),
-        //     gasPrice: gasPrice?.toString(),
-        //     source: bundler
-        // };
+        if (bundlerID) {
+            const result = await getUserOperationGasPrice(chainId);
 
-        const gasPriceObject = await getUserOperationGasPrice(chainId);
-
-        logger.info('Latest transaction gas price fetched', gasPriceObject);
-
+            return {
+                success: true,
+                gasPrice: result
+            }
+        }
         return {
-            success: true,
-            gasPrice: gasPriceObject
+            success: false,
+            error: "Bundler not supported"
         }
 
     } catch (error) {

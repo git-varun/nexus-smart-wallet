@@ -1,14 +1,15 @@
 import {Request, Response} from 'express';
+import {z} from 'zod';
 import {
     comparePassword,
     generateToken,
     getAuthStatus,
-    hashPassword,
     logoutUser,
     validatePasswordStrength
 } from '../services/auth.service';
-import {createServiceLogger, validateEmail} from '../utils';
+import {createServiceLogger} from '../utils';
 import * as UserRepository from '../repositories/userRepository';
+import {createUser} from "../services/user.service";
 
 const logger = createServiceLogger('AuthController');
 
@@ -22,7 +23,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'MISSING_FIELDS',
+                    code: 'MISSING FIELDS',
                     message: 'Email and password are required'
                 }
             });
@@ -30,7 +31,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         }
 
         // Validate email format
-        if (!validateEmail(email)) {
+        if (!z.email().parse(email)) {
             res.status(400).json({
                 success: false,
                 error: {
@@ -47,47 +48,24 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'WEAK_PASSWORD',
+                    code: 'WEAK PASSWORD',
                     message: passwordValidation.message
                 }
             });
             return;
         }
 
-        // Check if user already exists
-        const existingUser = await UserRepository.findByEmail(email);
-        if (existingUser) {
-            res.status(409).json({
-                success: false,
-                error: {
-                    code: 'USER_ALREADY_EXISTS',
-                    message: 'User with this email already exists'
-                }
-            });
-            return;
-        }
+        const result = await createUser(email, password);
 
-        // Hash password before storing
-        const hashedPassword = await hashPassword(password);
-
-        // Create new user with hashed password
-        const newUser = await UserRepository.createUser({
-            email,
-            password: hashedPassword
-        });
-
-        logger.info('User registration successful', {
-            userId: newUser.id,
-            email: newUser.email
-        });
-
+        if (!result.success) res.status(200).json({result});
+        else
         res.status(201).json({
             success: true,
             data: {
                 user: {
-                    id: newUser.id,
-                    email: newUser.email,
-                    createdAt: newUser.createdAt
+                    id: result.user?.id,
+                    email: result.user?.email,
+                    createdAt: result.user?.createdAt
                 }
             }
         });

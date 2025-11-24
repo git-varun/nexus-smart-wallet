@@ -1,6 +1,7 @@
 import {Response} from 'express';
 import {AuthenticatedRequest, getUserId} from '../middleware';
 import {
+    deploySmartAccountService,
     estimateGas,
     getGasPriceObject,
     getUserOperationStatus,
@@ -25,7 +26,7 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             return;
         }
 
-        const {to, data, value, chainId, bundlerId} = req.body;
+        const {to, data, value, chainId, walletID, paymasterID, bundlerID} = req.body;
 
         if (!to) {
             res.status(400).json({
@@ -49,7 +50,29 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             return;
         }
 
-        if (!bundlerId) {
+        if (!walletID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_WALLET_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!paymasterID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_PAYMASTER_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!bundlerID) {
             res.status(400).json({
                 success: false,
                 error: {
@@ -60,12 +83,23 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             return;
         }
 
-        logger.info('Send transaction request', {userId, to, hasData: !!data, value, chainId, bundlerId});
+        logger.info('Send transaction request', {
+            userId,
+            to,
+            hasData: !!data,
+            value,
+            chainId,
+            walletID,
+            paymasterID,
+            bundlerID
+        });
 
         const result = await sendTransactionService(
             userId,
             chainId,
-            bundlerId,
+            walletID,
+            paymasterID,
+            bundlerID,
             {to, data, value: value?.toString()}
         );
 
@@ -80,7 +114,113 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'TRANSACTION_FAILED',
+                    code: 'TRANSACTION FAILED',
+                    message: result.error
+                }
+            });
+        }
+
+    } catch (error) {
+        logger.error('Send transaction failed', error instanceof Error ? error : new Error(String(error)));
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'INTERNAL_ERROR',
+                message: 'Failed to send transaction'
+            }
+        });
+    }
+}
+
+export async function deploySmartWallet(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+        const userId = getUserId(req);
+        if (!userId) {
+            res.status(401).json({
+                success: false,
+                error: {
+                    code: 'UNAUTHORIZED',
+                    message: 'User authentication required'
+                }
+            });
+            return;
+        }
+
+        const {chainId, walletID, paymasterID, bundlerID} = req.body;
+
+
+        if (!chainId) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_CHAIN_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!walletID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_WALLET_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!paymasterID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_PAYMASTER_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!bundlerID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_BUNDLER_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        logger.info('Send transaction request', {
+            userId,
+            chainId,
+            walletID,
+            paymasterID,
+            bundlerID
+        });
+
+        const result = await deploySmartAccountService(
+            userId,
+            chainId,
+            walletID,
+            paymasterID,
+            bundlerID,
+        );
+
+        if (result.success) {
+            res.status(200).json({
+                success: true,
+                data: {
+                    transaction: result.transaction
+                }
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'TRANSACTION FAILED',
                     message: result.error
                 }
             });
@@ -197,7 +337,7 @@ export async function getTransactionHistory(req: AuthenticatedRequest, res: Resp
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'HISTORY_FAILED',
+                    code: 'HISTORY FAILED',
                     message: result.error
                 }
             });
@@ -229,13 +369,13 @@ export async function getGasEstimation(req: AuthenticatedRequest, res: Response)
             return;
         }
 
-        const {to, data, value, chainId, bundler} = req.body;
+        const {to, data, value, chainId, walletID, paymasterID, bundlerID} = req.body;
 
         if (!to) {
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'MISSING_RECIPIENT',
+                    code: 'MISSING RECIPIENT',
                     message: 'Recipient address is required'
                 }
             });
@@ -253,7 +393,29 @@ export async function getGasEstimation(req: AuthenticatedRequest, res: Response)
             return;
         }
 
-        if (!bundler) {
+        if (!walletID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_WALLET_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!paymasterID) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_PAYMASTER_ID',
+                    message: 'Chain ID is required'
+                }
+            });
+            return;
+        }
+
+        if (!bundlerID) {
             res.status(400).json({
                 success: false,
                 error: {
@@ -264,15 +426,23 @@ export async function getGasEstimation(req: AuthenticatedRequest, res: Response)
             return;
         }
 
-        // Convert chainId to number for consistent comparison
-        const chainIdNumber = parseInt(chainId.toString(), 10);
-
-        logger.info('Gas estimation request', {userId, to, hasData: !!data, value, chainId: chainIdNumber});
+        logger.info('Gas estimation request', {
+            userId,
+            to,
+            hasData: !!data,
+            value,
+            chainId,
+            walletID,
+            paymasterID,
+            bundlerID
+        });
 
         const result = await estimateGas(
             userId,
-            chainIdNumber,
-            bundler,
+            chainId,
+            walletID,
+            paymasterID,
+            bundlerID,
             {to, data, value: value?.toString()}
         );
 
@@ -287,7 +457,7 @@ export async function getGasEstimation(req: AuthenticatedRequest, res: Response)
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'ESTIMATION_FAILED',
+                    code: 'ESTIMATION FAILED',
                     message: result.error
                 }
             });
@@ -308,7 +478,7 @@ export async function getGasEstimation(req: AuthenticatedRequest, res: Response)
 export async function getGasPrice(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
 
-        const {chainId, bundlerId} = req.body;
+        const {chainId, bundlerID} = req.body;
         if (!chainId) {
             res.status(400).json({
                 success: false,
@@ -320,7 +490,7 @@ export async function getGasPrice(req: AuthenticatedRequest, res: Response): Pro
             return;
         }
 
-        if (!bundlerId) {
+        if (!bundlerID) {
             res.status(400).json({
                 success: false,
                 error: {
@@ -331,9 +501,9 @@ export async function getGasPrice(req: AuthenticatedRequest, res: Response): Pro
             return;
         }
 
-        logger.info('Get latest transaction gas price', chainId, bundlerId);
+        logger.info('Get latest transaction gas price', chainId, bundlerID);
 
-        const result = await getGasPriceObject(chainId, bundlerId);
+        const result = await getGasPriceObject(chainId, bundlerID);
 
         if (result.success) {
             res.status(200).json({

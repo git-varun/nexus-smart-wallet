@@ -1,21 +1,6 @@
-import {AccountModel, IAccount} from '../models/Account.schema';
+import {AccountModel, IAccount} from '../models';
 
-export async function createAccount(data: {
-    userId: string;
-    address: string;
-    chainId: number;
-    isDeployed?: boolean;
-    balance?: string;
-    nonce?: number;
-    signerAddress?: string;
-    alchemyAccountId?: string;
-    requestId?: string;
-    salt?: string;
-    accountType?: string;
-    factoryAddress?: string;
-    factoryData?: string
-    isActive?: boolean;
-}): Promise<IAccount> {
+export async function createAccount(data: Partial<IAccount>): Promise<IAccount> {
     const account = new AccountModel(data);
     return await account.save();
 }
@@ -36,7 +21,12 @@ export async function updateAccount(id: string, data: any): Promise<IAccount | n
     return AccountModel.findByIdAndUpdate(id, data, {new: true});
 }
 
-export async function findBy(query: { userId: string, chainId: number }): Promise<IAccount[]> {
+export async function findBy(query: {
+    userId: string,
+    chainId: number,
+    walletID?: string,
+    accountType?: string
+}): Promise<IAccount[]> {
     return AccountModel.find(query);
 }
 
