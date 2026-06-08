@@ -1,5 +1,5 @@
 import React from 'react';
-import {useSmartAccount} from '@/hooks/useSmartAccount.ts';
+import {useBackendSmartAccount} from '@/hooks/useBackendSmartAccount.ts';
 import {ProgressBar} from '../ui/Progress';
 import {Spinner} from '../ui/Spinner';
 import {cn} from '@/utils/cn.ts';
@@ -19,7 +19,7 @@ export const SmartAccountStatus: React.FC<SmartAccountStatusProps> = ({
         smartAccountAddress,
         isCreatingAccount,
         creationProgress
-    } = useSmartAccount();
+    } = useBackendSmartAccount();
 
     // If account exists and is ready
     if (smartAccountAddress && !isCreatingAccount) {

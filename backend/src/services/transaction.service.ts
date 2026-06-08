@@ -22,12 +22,15 @@ async function userAccount(userId: string, chainId: number, walletID: string): P
     return smartAccountResult.account;
 }
 
-async function getPaymaster(paymasterID: string, userOption: any, entryPointAddress: `0x${string}`, chainId: number) {
-    if (paymasterID === "ALCHEMY") return getAlchemyPaymasterStubData(userOption, entryPointAddress, chainId)
+async function getPaymaster(paymasterID: string, userOption: any, entryPointAddress: `0x${string}`, chainId: number): Promise<Record<string, any>> {
+    if (paymasterID === "ALCHEMY") {
+        return await getAlchemyPaymasterStubData(userOption, entryPointAddress, chainId) as Record<string, any>;
+    }
+    return {};
 }
 
-async function getGasPrice(bundlerID: string, chainId: number) {
-    if (bundlerID === "PIMLICO") {
+async function getGasPrice(bundlerId: string, chainId: number) {
+    if (bundlerId === "PIMLICO") {
         const result: any = await getUserOperationGasPrice(chainId);
         return {
             maxFeePerGas: BigInt(result?.gasPrice?.fast.maxFeePerGas),
@@ -37,18 +40,18 @@ async function getGasPrice(bundlerID: string, chainId: number) {
 }
 
 
-export async function deploySmartAccountService(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerID: string) {
+export async function deploySmartAccountService(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerId: string) {
 
     try {
         const accountDetails = await userAccount(userId, chainId, walletID);
         if (accountDetails.isDeployed) throw Error(`Deployed account ${userId} already deployed`);
-        const gasPrice = await getGasPrice(bundlerID, accountDetails.chainId);
-        const factory = bundlerID === "KERNEL" ? {} : {
+        const gasPrice = await getGasPrice(bundlerId, accountDetails.chainId);
+        const factory = accountDetails.walletID === "KERNEL" ? {} : {
             factory: accountDetails.providerInfo?.get("factory") as Hex,
             factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
         }
 
-        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerID, paymasterID, accountDetails);
+        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerId, paymasterID, accountDetails);
         let paymasterData = {};
         if (paymasterID === "ALCHEMY") {
             const userOp: any = await client.prepareUserOperation({
@@ -60,7 +63,7 @@ export async function deploySmartAccountService(userId: string, chainId: number,
                 ...factory,
                 ...gasPrice
             })
-            paymasterData = getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+            paymasterData = await getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
         }
 
         const hash = await client.sendUserOperation({
@@ -92,6 +95,13 @@ export async function deploySmartAccountService(userId: string, chainId: number,
                 accountId: accountDetails.address,
                 hash: receipt.receipt.transactionHash,
                 userOpHash: receipt.userOpHash,
+                to: zeroAddress,
+                value: '0',
+                data: '0x',
+                bundlerID: bundlerId,
+                paymasterID,
+                walletID: accountDetails.walletID,
+                gasUsed: receipt.actualGasUsed?.toString(),
                 chainId: accountDetails.chainId,
                 status: receipt.success ? "confirmed" : "failed"
             })
@@ -119,7 +129,7 @@ export async function deploySmartAccountService(userId: string, chainId: number,
 
 }
 
-export async function sendTransaction(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerID: string, request: TransactionRequest) {
+export async function sendTransaction(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerId: string, request: TransactionRequest) {
     try {
 
         logger.info('initiated', {userId, chainId, ...request});
@@ -128,15 +138,15 @@ export async function sendTransaction(userId: string, chainId: number, walletID:
         const checksummedTo = getAddress(request.to);
 
         const accountDetails = await userAccount(userId, chainId, walletID);
-        const gasPrice = await getGasPrice(bundlerID, accountDetails.chainId);
-        const factory = bundlerID === "KERNEL" ? {} : {
+        const gasPrice = await getGasPrice(bundlerId, accountDetails.chainId);
+        const factory = accountDetails.walletID === "KERNEL" ? {} : {
             factory: accountDetails.providerInfo?.get("factory") as Hex,
             factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
         }
 
-        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerID, paymasterID, accountDetails);
+        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerId, paymasterID, accountDetails);
 
-        let paymasterData;
+        let paymasterData: Record<string, any> = {};
         if (paymasterID === "ALCHEMY") {
             const userOp: any = await client.prepareUserOperation({
                 calls: [{
@@ -147,7 +157,7 @@ export async function sendTransaction(userId: string, chainId: number, walletID:
                 ...factory,
                 ...gasPrice
             })
-            paymasterData = getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+            paymasterData = await getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
         }
 
         const hash = await client.sendUserOperation({
@@ -171,6 +181,13 @@ export async function sendTransaction(userId: string, chainId: number, walletID:
                 accountId: accountDetails.address,
                 hash: receipt.receipt.transactionHash,
                 userOpHash: receipt.userOpHash,
+                to: checksummedTo,
+                value: request.value?.toString() || '0',
+                data: request.data || '0x',
+                bundlerID: bundlerId,
+                paymasterID,
+                walletID: accountDetails.walletID,
+                gasUsed: receipt.actualGasUsed?.toString(),
                 chainId: accountDetails.chainId,
                 status: receipt.success ? "confirmed" : "failed"
             })
@@ -201,7 +218,7 @@ export async function estimateGas(
     chainId: number,
     walletID: string,
     paymasterID: string,
-    bundlerID: string,
+    bundlerId: string,
     request: TransactionRequest
 ): Promise<{ success: boolean, gasEstimate?: any, error?: Error | string }> {
     try {
@@ -210,13 +227,13 @@ export async function estimateGas(
         const checksummedTo = getAddress(request.to);
 
         const accountDetails = await userAccount(userId, chainId, walletID);
-        const gasPrice = await getGasPrice(bundlerID, accountDetails.chainId);
-        const factory = bundlerID === "KERNEL" ? {} : {
+        const gasPrice = await getGasPrice(bundlerId, accountDetails.chainId);
+        const factory = accountDetails.walletID === "KERNEL" ? {} : {
             factory: accountDetails.providerInfo?.get("factory") as Hex,
             factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
         };
-        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerID, paymasterID, accountDetails);
-        let paymaster;
+        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerId, paymasterID, accountDetails);
+        let paymaster: Record<string, any> = {};
         if (paymasterID === "ALCHEMY") {
             const userOp: any = await client.prepareUserOperation({
                 calls: [{
@@ -227,7 +244,7 @@ export async function estimateGas(
                 ...factory,
                 ...gasPrice
             })
-            paymaster = getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+            paymaster = await getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
         }
 
 
@@ -261,24 +278,25 @@ export async function estimateGas(
     }
 }
 
-export async function getUserOperationStatus(chainId: number, userOpHash: string, bundlerID: string): Promise<{
+export async function getUserOperationStatus(chainId: number, userOpHash: string, bundlerId: string): Promise<{
     success: boolean,
     receipts?: TransactionInfo[],
     error?: Error | string
 }> {
     try {
-        logger.info('Getting user transaction stats', {bundlerID, chainId});
+        logger.info('Getting user transaction stats', {bundlerId, chainId});
 
         let result: any;
-        if (bundlerID === "ALCHEMY") {
+        if (bundlerId === "ALCHEMY") {
             result = await getUserOperationByHash(userOpHash);
         }
-        if (bundlerID === "PIMLICO") {
+        if (bundlerId === "PIMLICO") {
             result = await getUserOperationStatus_PM(userOpHash, chainId)
         }
 
+        console.log(result)
 
-        if (!result.status || !result.receipts.length) throw new Error('Failed to send user operation');
+        if (!result.status || !result.receipts?.length) throw new Error('Failed to get user operation status');
 
         result.receipts.forEach((receipt: {
             id: string,
@@ -313,12 +331,21 @@ export async function getUserTransactionHistory(userId: string, chainId?: number
     try {
         logger.info('Getting transaction history', {userId, chainId});
 
-        const transactions = await transactionRepository.findTransactionsByUserId(userId);
+        const transactions = await transactionRepository.findTransactionsByUserId(userId, chainId);
 
         const transactionInfos = transactions.map(tx => ({
             id: tx.id,
             hash: tx.hash,
             userOpHash: tx.userOpHash || undefined,
+            accountId: tx.accountId,
+            to: tx.to,
+            value: tx.value || '0',
+            data: tx.data,
+            bundlerID: tx.bundlerID,
+            paymasterID: tx.paymasterID,
+            walletID: tx.walletID,
+            gasUsed: tx.gasUsed,
+            chainId: tx.chainId,
             status: tx.status,
             createdAt: tx.createdAt,
             updatedAt: tx.updatedAt
@@ -344,15 +371,15 @@ export async function getUserTransactionHistory(userId: string, chainId?: number
     }
 }
 
-export async function getGasPriceObject(chainId: number, bundlerID: string): Promise<{
+export async function getGasPriceObject(chainId: number, bundlerId: string): Promise<{
     success: boolean,
     gasPrice?: any,
     error?: Error | string
 }> {
     try {
-        logger.info('Getting gas price', {chainId, bundlerID});
+        logger.info('Getting gas price', {chainId, bundlerId});
 
-        if (bundlerID) {
+        if (bundlerId) {
             const result = await getUserOperationGasPrice(chainId);
 
             return {

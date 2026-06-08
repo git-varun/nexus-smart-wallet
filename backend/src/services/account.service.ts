@@ -18,13 +18,20 @@ export async function createUserAccount(
 
         // Check for existing wallets
         const accounts = await accountRepository.findBy({userId, chainId, walletID, accountType});
-        if (accounts.length !== 0) return {
+        if (accounts.length > 0) return {
             success: false,
             error: "Account already exists for the same provider and chain.",
         };
 
         if (SUPPORTED_WALLETS.includes(walletID)) {
-            const account = await getAccount(walletID, accounts[0]);
+            const account = await getAccount(walletID, {
+                userId,
+                chainId,
+                walletID,
+                accountType,
+                isDeployed: false,
+                isActive: false,
+            } as any);
             const factoryInfo = await account.getFactoryArgs();
             const newAccount = await accountRepository.createAccount(
                 {

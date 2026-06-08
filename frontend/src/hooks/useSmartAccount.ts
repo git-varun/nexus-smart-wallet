@@ -38,6 +38,10 @@ import {
     selectSmartAccountNonce,
 } from '../store/selectors';
 
+/**
+ * @deprecated Use useBackendSmartAccount instead for better integration with the backend.
+ * This hook is maintained for legacy compatibility but will be removed in future versions.
+ */
 export const useSmartAccount = () => {
     const {address, isConnected} = useAccount();
     const publicClient = usePublicClient();

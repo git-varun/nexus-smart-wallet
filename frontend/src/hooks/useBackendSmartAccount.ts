@@ -1,7 +1,16 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect} from 'react';
+import {useDispatch, useSelector} from 'react-redux';
 import {Address} from 'viem';
-import {apiClient, SmartAccountInfo, User} from '../services/apiClient';
-import {DEFAULT_CHAIN_ID} from '../config/chains';
+import {apiClient} from '../services/apiClient';
+import {RootState} from '../store/store';
+import {
+    clearAuthData,
+    setAuthData,
+    setCurrentChainId,
+    setIsLoading,
+    setSmartAccountInfo,
+    setUserAccounts,
+} from '../store/smartAccountSlice';
 
 // Token management
 const TOKEN_KEY = 'nexus_auth_token';
@@ -19,36 +28,60 @@ const removeStoredToken = (): void => {
 };
 
 export function useBackendSmartAccount() {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [user, setUser] = useState<User | null>(null);
-    const [accountInfo, setAccountInfo] = useState<SmartAccountInfo | null>(null);
-    const [userAccounts, setUserAccounts] = useState<SmartAccountInfo[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [token, setToken] = useState<string | null>(null);
-    const [currentChainId, setCurrentChainId] = useState<number>(DEFAULT_CHAIN_ID);
+    const dispatch = useDispatch();
+    const {
+        isAuthenticated,
+        user,
+        token,
+        smartAccountInfo: accountInfo,
+        userAccounts,
+        currentChainId,
+        isLoading: loading,
+    } = useSelector((state: RootState) => state.smartAccount);
+
+    const error = useSelector((state: RootState) => state.smartAccount.creationError);
 
     // Check authentication status on mount
     useEffect(() => {
-        checkAuthStatus();
+        if (!isAuthenticated) {
+            checkAuthStatus();
+        }
     }, []);
+
+    const handleLogout = useCallback(async () => {
+        // Clear stored token
+        removeStoredToken();
+        // Clear Redux state
+        dispatch(clearAuthData());
+    }, [dispatch]);
+
+    const loadAccountInfo = useCallback(async (authToken: string, chainId?: number) => {
+        try {
+            const targetChainId = chainId || currentChainId;
+            const accountsResponse = await apiClient.getUserAccounts(authToken, targetChainId);
+            if (accountsResponse.success && accountsResponse.data?.accounts) {
+                const accounts = accountsResponse.data.accounts;
+                dispatch(setUserAccounts(accounts));
+                dispatch(setSmartAccountInfo(accounts[0] ?? null));
+            } else {
+                dispatch(setUserAccounts([]));
+                dispatch(setSmartAccountInfo(null));
+            }
+        } catch (err) {
+            console.error('Failed to load account info:', err);
+        }
+    }, [currentChainId, dispatch]);
 
     const checkAuthStatus = useCallback(async () => {
         try {
-            setLoading(true);
-            setError(null);
+            dispatch(setIsLoading(true));
 
             // First check if we have a stored token
             const storedToken = getStoredToken();
             if (!storedToken) {
-                setIsAuthenticated(false);
-                setUser(null);
-                setAccountInfo(null);
-                setToken(null);
+                await handleLogout();
                 return;
             }
-
-            setToken(storedToken);
 
             // Verify token with backend
             const response = await apiClient.getAuthStatus(storedToken);
@@ -57,11 +90,9 @@ export function useBackendSmartAccount() {
                 const {authenticated, user: userData} = response.data;
 
                 if (authenticated && userData) {
-                    setIsAuthenticated(true);
-                    setUser(userData);
+                    dispatch(setAuthData({user: userData, token: storedToken}));
                     await loadAccountInfo(storedToken);
                 } else {
-                    // Token is invalid, clear it
                     await handleLogout();
                 }
             } else {
@@ -69,140 +100,71 @@ export function useBackendSmartAccount() {
             }
         } catch (err) {
             console.error('Failed to check auth status:', err);
-            setError(err instanceof Error ? err.message : 'Failed to check authentication');
             await handleLogout();
         } finally {
-            setLoading(false);
+            dispatch(setIsLoading(false));
         }
-    }, []);
+    }, [dispatch, handleLogout, loadAccountInfo]);
 
-    const loadUserAccounts = useCallback(async (authToken: string, chainId?: number) => {
-        try {
-            const targetChainId = chainId || currentChainId;
-            const accountsResponse = await apiClient.getUserAccounts(authToken, targetChainId);
-            if (accountsResponse.success && accountsResponse.data && accountsResponse.data.accounts) {
-                setUserAccounts(accountsResponse.data.accounts);
-            } else {
-                setUserAccounts([]);
-                console.log(`Failed to load user accounts for chain ${targetChainId}:`, accountsResponse.error?.message || 'Unknown error');
-            }
-        } catch (err) {
-            console.error('Failed to load user accounts:', err);
-            setUserAccounts([]);
-        }
-    }, [currentChainId]);
-
-    const loadAccountInfo = useCallback(async (authToken: string, chainId?: number) => {
-        try {
-            // Load user accounts for the specified chain
-            const targetChainId = chainId || currentChainId;
-            const accountsResponse = await apiClient.getUserAccounts(authToken, targetChainId);
-            if (accountsResponse.success && accountsResponse.data && accountsResponse.data.accounts) {
-                setUserAccounts(accountsResponse.data.accounts);
-
-                if (accountsResponse.data.accounts.length > 0) {
-                    // Use the first account as the primary account
-                    setAccountInfo(accountsResponse.data.accounts[0]);
-                } else {
-                    // No accounts exist for this chain - this should trigger the AccountCreation flow in Dashboard
-                    console.log(`No accounts found for chain ${targetChainId} - user will need to create one`);
-                    setAccountInfo(null);
-                }
-            } else {
-                // API call failed or returned no data
-                setUserAccounts([]);
-                setAccountInfo(null);
-                console.log(`Failed to load accounts for chain ${targetChainId}:`, accountsResponse.error?.message || 'Unknown error');
-            }
-        } catch (err) {
-            console.error('Failed to load account info:', err);
-            setError(err instanceof Error ? err.message : 'Failed to load account info');
-        }
-    }, [currentChainId]);
+    // loadAccountInfo handles both userAccounts and smartAccountInfo — use it directly.
+    const loadUserAccounts = loadAccountInfo;
 
     const loginWithCredentials = useCallback(async (userData: { user: any; token: string }) => {
         try {
-            setLoading(true);
-            setError(null);
+            dispatch(setIsLoading(true));
 
             const {user: userInfo, token: authToken} = userData;
 
             // Store token
             setStoredToken(authToken);
-            setToken(authToken);
 
-            // Update state
-            setIsAuthenticated(true);
-            setUser(userInfo);
+            // Update Redux state
+            dispatch(setAuthData({user: userInfo, token: authToken}));
 
-            // Load account info (this will create account if it doesn't exist)
+            // Load account info
             await loadAccountInfo(authToken);
 
             console.log('✅ Authentication successful:', {user: userInfo});
             return {user: userInfo, token: authToken};
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
-            setError(errorMessage);
             throw new Error(errorMessage);
         } finally {
-            setLoading(false);
+            dispatch(setIsLoading(false));
         }
-    }, [loadAccountInfo]);
+    }, [dispatch, loadAccountInfo]);
 
-    const connect = useCallback(async (email: string) => {
+    const connect = useCallback(async (email: string, password: string) => {
         try {
-            setLoading(true);
-            setError(null);
+            dispatch(setIsLoading(true));
 
-            const response = await apiClient.authenticate(email);
+            const response = await apiClient.authenticate(email, password);
 
             if (response.success && response.data) {
-                const {user: userData, token: authToken, smartAccountAddress} = response.data;
+                const {user: userData, token: authToken} = response.data;
 
-                // Store token
                 setStoredToken(authToken);
-                setToken(authToken);
-
-                // Update state
-                setIsAuthenticated(true);
-                setUser(userData);
-
-                // Load account info
+                dispatch(setAuthData({user: userData, token: authToken}));
                 await loadAccountInfo(authToken);
 
-                console.log('✅ Authentication successful:', {user: userData, smartAccountAddress});
-                return {user: userData, token: authToken, smartAccountAddress};
+                return {user: userData, token: authToken};
             } else {
                 throw new Error(response.error?.message || 'Authentication failed');
             }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
-            setError(errorMessage);
             throw new Error(errorMessage);
         } finally {
-            setLoading(false);
+            dispatch(setIsLoading(false));
         }
-    }, [loadAccountInfo]);
-
-    const handleLogout = useCallback(async () => {
-        // Clear stored token
-        removeStoredToken();
-
-        // Clear state
-        setIsAuthenticated(false);
-        setUser(null);
-        setAccountInfo(null);
-        setToken(null);
-        setError(null);
-    }, []);
+    }, [dispatch, loadAccountInfo]);
 
     const disconnect = useCallback(async () => {
         try {
-            setLoading(true);
+            dispatch(setIsLoading(true));
 
             const currentToken = token || getStoredToken();
             if (currentToken) {
-                // Try to logout on backend (don't fail if it doesn't work)
                 try {
                     await apiClient.logout(currentToken);
                 } catch (err) {
@@ -213,11 +175,10 @@ export function useBackendSmartAccount() {
             await handleLogout();
         } catch (err) {
             console.error('Failed to disconnect:', err);
-            setError(err instanceof Error ? err.message : 'Disconnect failed');
         } finally {
-            setLoading(false);
+            dispatch(setIsLoading(false));
         }
-    }, [token, handleLogout]);
+    }, [token, handleLogout, dispatch]);
 
     const sendTransaction = useCallback(async (to: Address, data?: string, value?: bigint) => {
         try {
@@ -225,7 +186,14 @@ export function useBackendSmartAccount() {
                 throw new Error('Not authenticated');
             }
 
-            const response = await apiClient.sendTransaction(token, to, data, value);
+            const providers = {
+                bundlerID: 'ALCHEMY',
+                paymasterID: 'ALCHEMY',
+                walletID: accountInfo?.walletID || '',
+                chainId: currentChainId
+            };
+
+            const response = await apiClient.sendTransaction(token, to, data, value, providers);
 
             if (response.success && response.data) {
                 return response.data.transaction;
@@ -236,14 +204,126 @@ export function useBackendSmartAccount() {
             console.error('Transaction failed:', err);
             throw err;
         }
-    }, [isAuthenticated, token]);
+    }, [isAuthenticated, token, accountInfo, currentChainId]);
+
+    const createSmartAccount = useCallback(async (
+        chainId?: number,
+        walletID: string = 'ALCHEMY',
+        accountType: string = 'default'
+    ) => {
+        try {
+            if (!isAuthenticated || !token) {
+                throw new Error('Not authenticated');
+            }
+
+            dispatch(setIsLoading(true));
+            const response = await apiClient.createSmartAccount(
+                token,
+                chainId || currentChainId,
+                walletID,
+                accountType
+            );
+
+            if (response.success && response.data) {
+                await loadAccountInfo(token, chainId || currentChainId);
+                return response.data.smartAccount;
+            } else {
+                throw new Error(response.error?.message || 'Failed to create smart account');
+            }
+        } catch (err) {
+            console.error('Failed to create smart account:', err);
+            throw err;
+        } finally {
+            dispatch(setIsLoading(false));
+        }
+    }, [isAuthenticated, token, currentChainId, loadAccountInfo, dispatch]);
+
+    const deploySmartAccount = useCallback(async (
+        paymasterID: string = 'ALCHEMY',
+        bundlerID: string = 'ALCHEMY'
+    ) => {
+        try {
+            if (!isAuthenticated || !token) {
+                throw new Error('Not authenticated');
+            }
+            if (!accountInfo?.walletID) {
+                throw new Error('No smart account available to deploy');
+            }
+
+            dispatch(setIsLoading(true));
+            const response = await apiClient.deploySmartAccount(
+                token,
+                currentChainId,
+                accountInfo.walletID,
+                paymasterID,
+                bundlerID
+            );
+
+            if (response.success && response.data) {
+                await loadAccountInfo(token, currentChainId);
+                return response.data;
+            }
+
+            throw new Error(response.error?.message || 'Failed to deploy smart account');
+        } catch (err) {
+            console.error('Failed to deploy smart account:', err);
+            throw err;
+        } finally {
+            dispatch(setIsLoading(false));
+        }
+    }, [isAuthenticated, token, accountInfo, currentChainId, loadAccountInfo, dispatch]);
+
+    const executeTransaction = useCallback(async (params: { target: string; value?: string; data?: string }) => {
+        try {
+            if (!isAuthenticated || !token) {
+                throw new Error('Not authenticated');
+            }
+
+            dispatch(setIsLoading(true));
+            const providers = {
+                bundlerID: 'ALCHEMY',
+                paymasterID: 'ALCHEMY',
+                walletID: accountInfo?.walletID || '',
+                chainId: currentChainId
+            };
+
+            const response = await apiClient.sendTransaction(
+                token,
+                params.target as Address,
+                params.data,
+                params.value ? BigInt(params.value) : undefined,
+                providers
+            );
+
+            if (response.success && response.data) {
+                return {
+                    hash: response.data.transaction.hash,
+                    userOpHash: response.data.transaction.userOpHash,
+                    success: true
+                };
+            } else {
+                throw new Error(response.error?.message || 'Transaction failed');
+            }
+        } catch (err) {
+            console.error('Transaction execution failed:', err);
+            throw err;
+        } finally {
+            dispatch(setIsLoading(false));
+        }
+    }, [isAuthenticated, token, accountInfo, currentChainId, dispatch]);
+
+    const executeBatchTransaction = useCallback(async (params: { transactions: { target: string; value?: string; data?: string }[] }) => {
+        // Note: Backend might not support batching yet in a single endpoint, 
+        // but for now we'll throw an error or implement if backend supports it.
+        throw new Error('Batch transactions not yet supported via backend API');
+    }, []);
 
     const switchChain = useCallback(async (newChainId: number) => {
         if (newChainId === currentChainId) {
-            return; // Already on this chain
+            return;
         }
 
-        setCurrentChainId(newChainId);
+        dispatch(setCurrentChainId(newChainId));
 
         // If authenticated, reload account data for the new chain
         if (isAuthenticated && token) {
@@ -253,7 +333,7 @@ export function useBackendSmartAccount() {
                 console.error('Failed to load account info for new chain:', err);
             }
         }
-    }, [currentChainId, isAuthenticated, token, loadAccountInfo]);
+    }, [currentChainId, isAuthenticated, token, loadAccountInfo, dispatch]);
 
     return {
         // State
@@ -274,25 +354,40 @@ export function useBackendSmartAccount() {
         checkAuthStatus,
         loadUserAccounts,
         switchChain,
+        executeTransaction,
+        executeBatchTransaction,
 
         // Computed values
         smartAccountAddress: accountInfo?.address || null,
-        balance: accountInfo?.balance || BigInt(0),
+        balance: accountInfo?.balance || '0',
 
         // Compatibility properties for existing components
         isConnected: isAuthenticated,
         isChainSupported: true,
         chainId: currentChainId,
         isCreatingAccount: loading,
-        creationProgress: null,
-        createSmartAccount: () => Promise.resolve(),
+        creationProgress: {
+            isProcessing: loading,
+            progress: loading ? 50 : 0,
+            completedSteps: 0,
+            totalSteps: 1,
+            currentStep: loading ? { title: 'Processing', description: 'Communicating with backend...' } : null,
+            hasError: !!error,
+            error: error
+        },
+        createSmartAccount,
+        deploySmartAccount,
         tokenBalances: [],
-        nonce: accountInfo?.nonce || BigInt(0),
+        nonce: accountInfo?.nonce || 0,
         isDeployed: accountInfo?.isDeployed || false,
         paymasterDeposit: '0',
         isLoading: loading,
+        isExecuting: loading, // Add isExecuting for compatibility
         refreshData: checkAuthStatus,
         getSystemHealth: () => Promise.resolve({overall: 'healthy' as const}),
-        alchemyService: null
+        alchemyService: null,
+        smartAccount: accountInfo, // Partial compatibility
+        smartAccountClient: null,
+        isSmartAccountReady: isAuthenticated && !!accountInfo?.address && !!accountInfo?.isDeployed
     };
 }

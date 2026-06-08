@@ -75,7 +75,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             case 'confirmed':
                 return (
                     <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="5 13l4 4L19 7"/>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
                     </svg>
                 );
             case 'failed':
@@ -89,7 +89,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 return (
                     <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                              d="12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                 );
         }

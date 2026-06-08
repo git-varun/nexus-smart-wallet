@@ -5,6 +5,13 @@ export async function createTransaction(data: {
     accountId: string;
     hash: string;
     userOpHash: string;
+    to?: string;
+    value?: string;
+    data?: string;
+    bundlerID?: string;
+    paymasterID?: string;
+    walletID?: string;
+    gasUsed?: string;
     status?: TransactionStatus;
     chainId: number
 }): Promise<ITransaction> {
@@ -20,8 +27,9 @@ export async function findTransactionByHash(hash: string): Promise<ITransaction 
     return TransactionModel.findOne({hash});
 }
 
-export async function findTransactionsByUserId(userId: string): Promise<ITransaction[]> {
-    return TransactionModel.find({userId}).sort({createdAt: -1});
+export async function findTransactionsByUserId(userId: string, chainId?: number): Promise<ITransaction[]> {
+    const query = chainId !== undefined ? {userId, chainId} : {userId};
+    return TransactionModel.find(query).sort({createdAt: -1});
 }
 
 export async function findTransactionsByAccountId(accountId: string): Promise<ITransaction[]> {

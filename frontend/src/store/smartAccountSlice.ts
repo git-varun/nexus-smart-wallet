@@ -1,10 +1,17 @@
 import {createSlice, PayloadAction} from '@reduxjs/toolkit';
-import {SmartAccountInfo} from '../types/account';
+import {SmartAccountInfo, User} from '../types/account';
 
 interface SmartAccountState {
+    // Auth state
+    isAuthenticated: boolean;
+    user: User | null;
+    token: string | null;
+
     // Core smart account data
     smartAccountAddress: string;
     smartAccountInfo: SmartAccountInfo | null;
+    userAccounts: SmartAccountInfo[];
+    currentChainId: number;
 
     // Creation state
     isCreatingAccount: boolean;
@@ -26,8 +33,13 @@ interface SmartAccountState {
 }
 
 const initialState: SmartAccountState = {
+    isAuthenticated: false,
+    user: null,
+    token: null,
     smartAccountAddress: '',
     smartAccountInfo: null,
+    userAccounts: [],
+    currentChainId: 84532, // Default to Base Sepolia
     isCreatingAccount: false,
     creationError: null,
     isExecuting: false,
@@ -40,13 +52,40 @@ const smartAccountSlice = createSlice({
     name: 'smartAccount',
     initialState,
     reducers: {
-        // Smart account creation
+        // Auth management
+        setAuthData: (state, action: PayloadAction<{ user: User; token: string }>) => {
+            state.isAuthenticated = true;
+            state.user = action.payload.user;
+            state.token = action.payload.token;
+        },
+
+        clearAuthData: (state) => {
+            state.isAuthenticated = false;
+            state.user = null;
+            state.token = null;
+            state.smartAccountAddress = '';
+            state.smartAccountInfo = null;
+            state.userAccounts = [];
+        },
+
+        // Smart account management
         setSmartAccountAddress: (state, action: PayloadAction<string>) => {
             state.smartAccountAddress = action.payload;
         },
 
         setSmartAccountInfo: (state, action: PayloadAction<SmartAccountInfo | null>) => {
             state.smartAccountInfo = action.payload;
+            if (action.payload) {
+                state.smartAccountAddress = action.payload.address;
+            }
+        },
+
+        setUserAccounts: (state, action: PayloadAction<SmartAccountInfo[]>) => {
+            state.userAccounts = action.payload;
+        },
+
+        setCurrentChainId: (state, action: PayloadAction<number>) => {
+            state.currentChainId = action.payload;
         },
 
         // Creation state management
@@ -98,8 +137,12 @@ const smartAccountSlice = createSlice({
 });
 
 export const {
+    setAuthData,
+    clearAuthData,
     setSmartAccountAddress,
     setSmartAccountInfo,
+    setUserAccounts,
+    setCurrentChainId,
     setIsCreatingAccount,
     setCreationError,
     setIsExecuting,

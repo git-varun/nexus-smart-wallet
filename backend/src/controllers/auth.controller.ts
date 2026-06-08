@@ -20,6 +20,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
         // Validate input
         if (!email || !password) {
+            logger.warn(`Missing fields during registration. Email: ${!!email}, Password: ${!!password}`);
             res.status(400).json({
                 success: false,
                 error: {
@@ -31,7 +32,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         }
 
         // Validate email format
-        if (!z.email().parse(email)) {
+        if (!z.email().safeParse(email).success) {
             res.status(400).json({
                 success: false,
                 error: {
@@ -57,8 +58,17 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
         const result = await createUser(email, password);
 
-        if (!result.success) res.status(200).json({result});
-        else
+        if (!result.success) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'REGISTRATION_FAILED',
+                    message: result.error || 'Failed to create user'
+                }
+            });
+            return;
+        }
+
         res.status(201).json({
             success: true,
             data: {
@@ -66,7 +76,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
                     id: result.user?.id,
                     email: result.user?.email,
                     createdAt: result.user?.createdAt
-                }
+                },
+                token: generateToken(result.user!.id, result.user?.email)
             }
         });
 

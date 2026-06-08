@@ -5,7 +5,7 @@ import {ChainSelector} from '../ui/ChainSelector';
 import {ProfileAvatar} from '../ui/ProfileAvatar';
 import {useBackendSmartAccount} from '@/hooks/useBackendSmartAccount.ts';
 
-type DashboardSection = 'overview' | 'accounts' | 'transactions' | 'sessions' | 'profile';
+type DashboardSection = 'overview' | 'accounts' | 'transactions' | 'profile';
 
 interface DashboardLayoutProps {
     children: React.ReactNode;
@@ -52,16 +52,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                           d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
                 </svg>
             )
-        },
-        {
-            id: 'sessions' as DashboardSection,
-            label: 'Session Keys',
-            icon: (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1221 9z"/>
-                </svg>
-            )
         }
     ];
 
@@ -87,7 +77,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
                     {/* Enhanced Profile Button */}
                     <motion.div
-                        className="bg-gradient-to-r from-card/80 to-card/60 rounded-xl p-4 cursor-pointer hover:from-card/90 hover:to-card/80 transition-all duration-300 border border-border hover:border-web3-primary/40 shadow-lg hover:shadow-xl backdrop-blur-sm"
+                        className={`bg-gradient-to-r rounded-xl p-4 cursor-pointer transition-all duration-300 border shadow-lg hover:shadow-xl backdrop-blur-sm ${
+                            currentSection === 'profile'
+                                ? 'from-web3-primary/20 to-web3-secondary/20 border-web3-primary/50'
+                                : 'from-card/80 to-card/60 border-border hover:from-card/90 hover:to-card/80 hover:border-web3-primary/40'
+                        }`}
                         whileHover={{scale: 1.02, y: -2}}
                         whileTap={{scale: 0.98}}
                         onClick={() => onSectionChange('profile')}
@@ -96,18 +90,23 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                         transition={{delay: 0.1}}
                     >
                         <div className="flex items-center gap-3">
-                            <ProfileAvatar
-                                userId={user?.id}
-                                email={user?.email}
-                                size="lg"
-                                animated={false}
-                                showOnlineStatus={true}
-                                isOnline={true}
-                            />
+                            {user ? (
+                                <ProfileAvatar
+                                    userId={user.id}
+                                    username={user.username}
+                                    email={user.email}
+                                    size="lg"
+                                    animated={false}
+                                    showOnlineStatus={true}
+                                    isOnline={true}
+                                />
+                            ) : (
+                                <div className="w-16 h-16 rounded-full bg-muted animate-pulse" />
+                            )}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                     <p className="text-sm font-semibold text-foreground truncate">
-                                        {user?.email?.split('@')[0] || 'User'}
+                                        {user?.username || user?.email?.split('@')[0] || 'User'}
                                     </p>
                                     <div className={`w-2 h-2 rounded-full ${
                                         accountInfo?.isDeployed ? 'bg-green-500 shadow-green-500/50' : 'bg-yellow-500 shadow-yellow-500/50'
@@ -136,7 +135,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                               d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                              d="15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                     </svg>
                                 </motion.div>
                                 <div className="text-xs text-muted-foreground/60">Profile</div>
@@ -215,8 +214,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                             <h2 className="text-xl font-semibold text-foreground capitalize">
                                 {currentSection === 'overview' ? 'Dashboard Overview' :
                                     currentSection === 'accounts' ? 'Smart Accounts' :
-                                        currentSection === 'transactions' ? 'Transaction Center' :
-                                            currentSection === 'sessions' ? 'Session Keys' :
+                                            currentSection === 'transactions' ? 'Transaction Center' :
                                                 'User Profile'}
                             </h2>
                         </div>

@@ -14,11 +14,21 @@ import {
     SmartAccount
 } from "viem/account-abstraction"
 import {createServiceLogger, generateSalt, getCentralAccount, getRPC_URL} from "../utils";
-import {Address, createPublicClient, http} from "viem";
-import {baseSepolia} from "viem/chains";
+import {Address, createPublicClient, defineChain, http} from "viem";
 import {IAccount} from "../models";
 
 const logger = createServiceLogger("Accounts Script");
+
+function getChain(chainId: number) {
+    return defineChain({
+        id: chainId,
+        name: `Chain ${chainId}`,
+        nativeCurrency: {name: "Ether", symbol: "ETH", decimals: 18},
+        rpcUrls: {
+            default: {http: [getRPC_URL(chainId)]}
+        }
+    });
+}
 
 export async function getAccount(walletID: string, accountDetails: IAccount): Promise<SmartAccount> {
 
@@ -31,8 +41,8 @@ export async function getAccount(walletID: string, accountDetails: IAccount): Pr
 
 
     const publicClient = createPublicClient({
-        chain: baseSepolia,
-        transport: http()
+        chain: getChain(accountDetails.chainId),
+        transport: http(getRPC_URL(accountDetails.chainId))
     })
 
     const owner = await getCentralAccount();

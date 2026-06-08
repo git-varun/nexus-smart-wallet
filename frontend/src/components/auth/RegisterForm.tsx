@@ -35,8 +35,8 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({onSuccess, onSwitchTo
             errors.password = 'Password is required';
         } else if (formData.password.length < 8) {
             errors.password = 'Password must be at least 8 characters';
-        } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
-            errors.password = 'Password must contain uppercase, lowercase, and number';
+        } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/.test(formData.password)) {
+            errors.password = 'Password must contain uppercase, lowercase, number, and special character (!@#$%^&*)';
         }
 
         // Confirm password validation

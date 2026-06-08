@@ -5,6 +5,7 @@ import {Button} from '../ui/Button';
 import {Input} from '../ui/Input';
 import {ProfileAvatar} from '../ui/ProfileAvatar';
 import {useBackendSmartAccount} from '../../hooks/useBackendSmartAccount';
+import {apiClient} from '../../services/apiClient';
 import {DEFAULT_USER_PREFERENCES, SUPPORTED_LANGUAGES, UserPreferences, validateUsername} from '../../types/user';
 
 interface ProfileSection {
@@ -21,22 +22,43 @@ interface ProfileFormData {
 }
 
 export const UserProfile: React.FC = () => {
-    const {user, accountInfo} = useBackendSmartAccount();
+    const {user, accountInfo, token, loading: authLoading} = useBackendSmartAccount();
     const [activeSection, setActiveSection] = useState('personal');
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
     const [usernameCheckLoading, setUsernameCheckLoading] = useState(false);
 
-    // Form states
+    // Form states initialized with useMemo or useEffect to handle delayed user data
     const [formData, setFormData] = useState<ProfileFormData>({
-        username: user?.username || '',
-        displayName: user?.displayName || user?.email?.split('@')[0] || '',
-        email: user?.email || ''
+        username: '',
+        displayName: '',
+        email: ''
     });
-    const [preferences, setPreferences] = useState<UserPreferences>(
-        user?.preferences || DEFAULT_USER_PREFERENCES
-    );
+    const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_USER_PREFERENCES);
+
+    // Update form data when user data becomes available
+    React.useEffect(() => {
+        if (user) {
+            setFormData({
+                username: user.username || '',
+                displayName: user.displayName || user.email?.split('@')[0] || '',
+                email: user.email || ''
+            });
+
+            if (user.preferences) {
+                const base = DEFAULT_USER_PREFERENCES;
+                setPreferences({
+                    ...base,
+                    ...user.preferences,
+                    privacy: {
+                        ...base.privacy,
+                        ...(user.preferences.privacy || {})
+                    }
+                });
+            }
+        }
+    }, [user]);
 
     const profileSections: ProfileSection[] = [
         {
@@ -59,7 +81,7 @@ export const UserProfile: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                           d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                 </svg>
             )
         },
@@ -87,6 +109,17 @@ export const UserProfile: React.FC = () => {
         }
     ];
 
+    if (authLoading || !user) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-web3-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-lg text-foreground">Loading Profile...</p>
+                </div>
+            </div>
+        );
+    }
+
     const checkUsernameAvailability = useCallback(async (username: string) => {
         if (!username || username === user?.username) {
             setUsernameAvailable(null);
@@ -99,25 +132,39 @@ export const UserProfile: React.FC = () => {
             return;
         }
 
+        if (!token) return;
+
         setUsernameCheckLoading(true);
         try {
-            // TODO: Replace with actual API call
-            await new Promise(resolve => setTimeout(resolve, 500));
-            setUsernameAvailable(Math.random() > 0.5); // Mock availability
+            const response = await apiClient.checkUsernameAvailability(token, username);
+            if (response.success && response.data) {
+                setUsernameAvailable(response.data.available);
+            } else {
+                setUsernameAvailable(false);
+            }
         } catch (error) {
             console.error('Failed to check username availability:', error);
+            setUsernameAvailable(false);
         } finally {
             setUsernameCheckLoading(false);
         }
-    }, [user?.username]);
+    }, [user?.username, token]);
 
     const handleSave = async () => {
+        if (!token) return;
+
         setIsSaving(true);
         try {
-            // TODO: Implement actual API call to update profile
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            console.log('Saving profile:', {formData, preferences});
-            setIsEditing(false);
+            const response = await apiClient.updateProfile(token, {
+                username: formData.username,
+                displayName: formData.displayName,
+                preferences
+            });
+
+            if (response.success) {
+                setIsEditing(false);
+                // Optionally trigger a refresh of user data
+            }
         } catch (error) {
             console.error('Failed to save profile:', error);
         } finally {
@@ -225,13 +272,13 @@ export const UserProfile: React.FC = () => {
                         <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Member since:</span>
                             <span className="text-foreground">
-                                {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
+                                {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'New Member'}
                             </span>
                         </div>
                         <div className="flex items-center justify-between text-sm mt-2">
                             <span className="text-muted-foreground">Last login:</span>
                             <span className="text-foreground">
-                                {user?.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
+                                {user?.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Just now'}
                             </span>
                         </div>
                     </div>

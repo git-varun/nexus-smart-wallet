@@ -23,7 +23,7 @@ export async function updateUser(id: string, data: Partial<IUser>): Promise<IUse
 
 export async function updateLastLogin(userId: string): Promise<IUser | null> {
     return UserModel.findOneAndUpdate(
-        {userId},
+        {_id: userId},
         {$set: {lastLogin: new Date()}},
         {new: true}
     );
@@ -41,4 +41,3 @@ export async function findAll(): Promise<IUser[]> {
 export async function countUsers(): Promise<number> {
     return UserModel.countDocuments();
 }
-

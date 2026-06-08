@@ -1,0 +1,51 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      LOG_DIR: /app/logs
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      MONGODB_URI: mongodb://mongo:27017/nexus-wallet
+      PORT: 3000
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ./docker-logs/backend:/app/logs
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+    command: sh -c "mkdir -p /app/logs && pnpm dev --host 0.0.0.0 2>&1 | tee -a /app/logs/vite.log"
+    ports:
+      - "${FRONTEND_PORT:-8080}:3001"
+    volumes:
+      - ./docker-logs/frontend:/app/logs
+    depends_on:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

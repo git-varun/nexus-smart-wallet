@@ -240,14 +240,25 @@ export async function deploySmartWallet(req: AuthenticatedRequest, res: Response
 
 export async function getOperationStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-        const {callerId, chainId} = req.body;
+        const {userOpHash, chainId, bundlerId} = req.body;
 
-        if (!callerId) {
+        if (!userOpHash) {
             res.status(400).json({
                 success: false,
                 error: {
-                    code: 'MISSING_CALLER_ID',
-                    message: 'Caller ID is required'
+                    code: 'MISSING_USER_OP_HASH',
+                    message: 'UserOp Hash is required'
+                }
+            });
+            return;
+        }
+
+        if (!bundlerId) {
+            res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_BUNDLER_ID',
+                    message: 'Bundler ID is required'
                 }
             });
             return;
@@ -264,9 +275,9 @@ export async function getOperationStatus(req: AuthenticatedRequest, res: Respons
             return;
         }
 
-        logger.info('Getting user operation status', callerId, chainId);
+        logger.info('Getting user operation status', userOpHash, chainId);
 
-        const result = await getUserOperationStatus(callerId, chainId);
+        const result = await getUserOperationStatus(chainId, userOpHash, bundlerId);
 
         if (result.success) {
             res.status(200).json({
@@ -310,20 +321,12 @@ export async function getTransactionHistory(req: AuthenticatedRequest, res: Resp
 
         const {chainId} = req.query;
 
-        if (!chainId) {
-            res.status(400).json({
-                success: false,
-                error: {
-                    code: 'MISSING_CHAIN_ID',
-                    message: 'Chain ID is required as query parameter'
-                }
-            });
-            return;
-        }
-
         logger.info('Get transaction history request', {userId, chainId});
 
-        const result = await getUserTransactionHistory(userId, parseInt(chainId as string));
+        const result = await getUserTransactionHistory(
+            userId,
+            chainId ? parseInt(chainId as string) : undefined
+        );
 
         if (result.success) {
             res.status(200).json({
@@ -478,7 +481,7 @@ export async function getGasEstimation(req: AuthenticatedRequest, res: Response)
 export async function getGasPrice(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
 
-        const {chainId, bundlerID} = req.body;
+        const {chainId, bundlerID} = req.query as { chainId?: string; bundlerID?: string };
         if (!chainId) {
             res.status(400).json({
                 success: false,
@@ -503,7 +506,7 @@ export async function getGasPrice(req: AuthenticatedRequest, res: Response): Pro
 
         logger.info('Get latest transaction gas price', chainId, bundlerID);
 
-        const result = await getGasPriceObject(chainId, bundlerID);
+        const result = await getGasPriceObject(parseInt(chainId as string), bundlerID as string);
 
         if (result.success) {
             res.status(200).json({

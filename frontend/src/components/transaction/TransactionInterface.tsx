@@ -1,7 +1,7 @@
 // frontend/src/components/transaction/TransactionInterface.tsx
 import React, {useState} from 'react';
 import {isAddress, parseEther} from 'viem';
-import {useSmartAccount} from '@/hooks/useSmartAccount.ts';
+import {useBackendSmartAccount} from '@/hooks/useBackendSmartAccount.ts';
 import {useToast} from '@/hooks/useToast.ts';
 import {Card} from '../ui/Card';
 import {Button} from '../ui/Button';
@@ -9,7 +9,7 @@ import {Input} from '../ui/Input';
 import {TransactionHistory} from './TransactionHistory';
 
 export const TransactionInterface: React.FC = () => {
-    const smartAccountHook = useSmartAccount();
+    const smartAccountHook = useBackendSmartAccount();
     const {
         executeTransaction,
         executeBatchTransaction,
@@ -118,7 +118,7 @@ export const TransactionInterface: React.FC = () => {
     };
 
     // Show warning if smart account is not ready
-    if (!isSmartAccountReady()) {
+    if (!isSmartAccountReady) {
         return (
             <div className="space-y-6">
                 <Card className="p-6">

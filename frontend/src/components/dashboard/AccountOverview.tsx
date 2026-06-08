@@ -17,9 +17,11 @@ interface AccountStats {
 }
 
 export const AccountOverview: React.FC = () => {
-    const {user, token, accountInfo, userAccounts, loading, currentChainId} = useBackendSmartAccount();
+    const {user, token, accountInfo, userAccounts, loading, currentChainId, deploySmartAccount} = useBackendSmartAccount();
     const [stats, setStats] = useState<AccountStats | null>(null);
     const [isLoadingStats, setIsLoadingStats] = useState(true);
+    const [isDeploying, setIsDeploying] = useState(false);
+    const [deployError, setDeployError] = useState<string | null>(null);
     const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
 
     useEffect(() => {
@@ -34,25 +36,22 @@ export const AccountOverview: React.FC = () => {
 
                 // Get transaction history for current chain
                 const txResponse = await apiClient.getTransactionHistory(token, currentChainId);
-                const totalTransactions = txResponse.success ? txResponse.data?.transactions.length || 0 : 0;
+                const totalTransactions = txResponse.success ? txResponse.data?.count || 0 : 0;
 
                 // Calculate total balance (for now just use current account balance)
                 const totalBalance = accountInfo?.balance || '0';
-
-                // Session keys would come from session API when implemented
-                const activeSessionKeys = 0;
 
                 setStats({
                     totalAccounts,
                     totalBalance,
                     totalTransactions,
-                    activeSessionKeys
+                    activeSessionKeys: 0
                 });
             } catch (error) {
                 console.error('Failed to fetch account stats:', error);
                 setStats({
-                    totalAccounts: 0,
-                    totalBalance: '0',
+                    totalAccounts: userAccounts.length,
+                    totalBalance: accountInfo?.balance || '0',
                     totalTransactions: 0,
                     activeSessionKeys: 0
                 });
@@ -70,6 +69,18 @@ export const AccountOverview: React.FC = () => {
             return parseFloat(ethBalance).toFixed(4);
         } catch {
             return '0.0000';
+        }
+    };
+
+    const handleDeployAccount = async () => {
+        setIsDeploying(true);
+        setDeployError(null);
+        try {
+            await deploySmartAccount();
+        } catch (error) {
+            setDeployError(error instanceof Error ? error.message : 'Failed to deploy smart account');
+        } finally {
+            setIsDeploying(false);
         }
     };
 
@@ -118,7 +129,7 @@ export const AccountOverview: React.FC = () => {
             <motion.div
                 initial={{opacity: 0, y: -20}}
                 animate={{opacity: 1, y: 0}}
-                className="flex items-center justify-between"
+                className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
             >
                 <div>
                     <h1 className="text-3xl font-bold text-foreground">Welcome
@@ -127,7 +138,27 @@ export const AccountOverview: React.FC = () => {
                         Here's your comprehensive smart wallet dashboard
                     </p>
                 </div>
-                <div className="flex gap-3">
+                {accountInfo && !accountInfo.isDeployed && (
+                    <Card className="p-4 border-yellow-500/40 bg-yellow-500/10">
+                        <div className="flex items-center justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-semibold text-foreground">Deploy Required</h2>
+                                <p className="text-sm text-muted-foreground">
+                                    Your smart account address is created, but it must be deployed before transactions are reliable.
+                                </p>
+                                {deployError && <p className="text-sm text-red-400 mt-2">{deployError}</p>}
+                            </div>
+                            <Button
+                                variant="primary"
+                                loading={isDeploying}
+                                onClick={handleDeployAccount}
+                            >
+                                Deploy Account
+                            </Button>
+                        </div>
+                    </Card>
+                )}
+                <div className="flex gap-3 lg:shrink-0">
                     <Button variant="outline" size="sm">
                         <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -192,17 +223,17 @@ export const AccountOverview: React.FC = () => {
                     color="accent"
                 />
 
-                {/* Session Keys */}
                 <StatCard
-                    title="Session Keys"
-                    value={stats?.activeSessionKeys || 0}
+                    title="Ready Accounts"
+                    value={userAccounts.filter(acc => acc.isDeployed).length}
                     icon={
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                  d="15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+                                  d="M9 12l2 2 4-4m5 2a8 8 0 11-16 0 8 8 0 0116 0z"/>
                         </svg>
                     }
                     color="warning"
+                    subtitle="Deployed on-chain"
                 />
             </motion.div>
 

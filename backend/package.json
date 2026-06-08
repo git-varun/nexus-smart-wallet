@@ -3,10 +3,8 @@
   "version": "1.0.0",
   "description": "Backend API for Nexus Smart Wallet",
   "main": "dist/index.js",
-  "packageManager": "yarn@1.22.22",
   "engines": {
-    "node": ">=18.0.0",
-    "yarn": ">=1.22.0"
+    "node": ">=18.0.0"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

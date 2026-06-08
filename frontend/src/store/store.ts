@@ -12,7 +12,12 @@ const smartAccountPersistConfig = {
     whitelist: [
         'smartAccountAddress',
         'smartAccountInfo',
-        'newGuardian'
+        'newGuardian',
+        'isAuthenticated',
+        'user',
+        'token',
+        'userAccounts',
+        'currentChainId'
     ], // Only persist serializable data
     blacklist: [
         'isCreatingAccount',

@@ -1,11 +1,24 @@
 // frontend/src/types/account.ts
+export interface User {
+    id: string;
+    email: string;
+    username?: string;
+    profileImage?: string;
+    createdAt?: string;
+    lastLogin?: string;
+}
+
 export interface SmartAccountInfo {
+    id: string
     address: string
-    owner: string
-    nonce: number
+    chainId: number
     isDeployed: boolean
-    balance: string
-    modules: string[]
+    walletID: string
+    accountType: string
+    balance?: string
+    nonce?: number
+    createdAt: string
+    updatedAt: string
 }
 
 export interface UserOperation {

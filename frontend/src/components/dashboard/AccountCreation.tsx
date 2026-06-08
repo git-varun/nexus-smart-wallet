@@ -10,6 +10,7 @@ import {DEFAULT_ACCOUNT_TYPE, getAccountTypeById} from '@/config/accountTypes.ts
 import {cn} from '@/utils/cn.ts';
 
 type SignerType = 'central' | 'walletconnect';
+type BackendWalletID = 'ALCHEMY' | 'KERNEL' | 'BICONOMY';
 
 interface AccountCreationProps {
     onAccountCreated?: () => void;
@@ -28,6 +29,12 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
     const [walletConnectFailed, setWalletConnectFailed] = useState(false);
 
     const {token, user} = useBackendSmartAccount();
+
+    const getBackendWalletID = (provider?: string): BackendWalletID => {
+        if (provider === 'kernel') return 'KERNEL';
+        if (provider === 'biconomy') return 'BICONOMY';
+        return 'ALCHEMY';
+    };
 
     const signerOptions = [
         {
@@ -95,7 +102,12 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
                 accountType: selectedAccount?.displayName,
                 accountTypeId: selectedAccountType
             });
-            const response = await apiClient.createSmartAccount(token, selectedChainId, selectedAccountType);
+            const response = await apiClient.createSmartAccount(
+                token,
+                selectedChainId,
+                getBackendWalletID(selectedAccount?.provider),
+                selectedAccountType
+            );
 
             if (response.success && response.data) {
                 console.log('✅ Smart account created:', response.data.smartAccount);

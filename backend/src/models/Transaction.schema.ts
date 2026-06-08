@@ -7,6 +7,13 @@ export interface ITransaction extends Document {
     accountId: string;
     hash: string;
     userOpHash: string;
+    to?: string;
+    value?: string;
+    data?: string;
+    bundlerID?: string;
+    paymasterID?: string;
+    walletID?: string;
+    gasUsed?: string;
     status: TransactionStatus;
     chainId: number;
     createdAt: Date;
@@ -29,6 +36,35 @@ const transactionSchema = new Schema<ITransaction>({
     userOpHash: {
         type: String,
         required: true
+    },
+    to: {
+        type: String,
+        required: false
+    },
+    value: {
+        type: String,
+        required: false,
+        default: '0'
+    },
+    data: {
+        type: String,
+        required: false
+    },
+    bundlerID: {
+        type: String,
+        required: false
+    },
+    paymasterID: {
+        type: String,
+        required: false
+    },
+    walletID: {
+        type: String,
+        required: false
+    },
+    gasUsed: {
+        type: String,
+        required: false
     },
     status: {
         type: String,

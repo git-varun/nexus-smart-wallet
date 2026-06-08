@@ -36,7 +36,7 @@ export const TransactionInterface: React.FC = () => {
 
     const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-    const {token} = useBackendSmartAccount();
+    const {token, accountInfo} = useBackendSmartAccount();
     const {
         sendTransaction,
         estimateGas,
@@ -61,7 +61,7 @@ export const TransactionInterface: React.FC = () => {
         }
     ];
 
-    const validateForm = (): boolean => {
+    const getFormErrors = (): Record<string, string> => {
         const errors: Record<string, string> = {};
 
         if (activeTab === 'simple') {
@@ -90,9 +90,16 @@ export const TransactionInterface: React.FC = () => {
             }
         }
 
+        return errors;
+    };
+
+    const validateForm = (): boolean => {
+        const errors = getFormErrors();
         setValidationErrors(errors);
         return Object.keys(errors).length === 0;
     };
+
+    const isFormValid = Object.keys(getFormErrors()).length === 0;
 
     const handleEstimateGas = async () => {
         if (!validateForm()) return;
@@ -103,7 +110,12 @@ export const TransactionInterface: React.FC = () => {
             : (value ? parseEther(value) : BigInt(0));
         const txData = activeTab === 'simple' ? '0x' : data;
 
-        await estimateGas(txTo as `0x${string}`, txData, txValue, 'alchemy');
+        await estimateGas(txTo as `0x${string}`, txData, txValue, {
+            bundlerID: selectedBundler.toUpperCase(),
+            paymasterID: selectedPaymaster.toUpperCase(),
+            walletID: accountInfo?.walletID || 'ALCHEMY',
+            chainId: selectedChainId
+        });
     };
 
     const handleSendTransaction = async () => {
@@ -128,7 +140,12 @@ export const TransactionInterface: React.FC = () => {
                 txTo as `0x${string}`,
                 txData,
                 txValue,
-                {bundler: selectedBundler, paymaster: selectedPaymaster, chainId: selectedChainId}
+                {
+                    bundlerID: selectedBundler.toUpperCase(),
+                    paymasterID: selectedPaymaster.toUpperCase(),
+                    walletID: accountInfo?.walletID || 'ALCHEMY',
+                    chainId: selectedChainId
+                }
             );
 
             // Reset form on success
@@ -452,7 +469,7 @@ export const TransactionInterface: React.FC = () => {
                                 size="sm"
                                 onClick={handleEstimateGas}
                                 loading={isEstimating}
-                                disabled={!validateForm()}
+                                disabled={!isFormValid}
                             >
                                 Estimate Gas
                             </Button>
@@ -554,8 +571,8 @@ export const TransactionInterface: React.FC = () => {
                             variant="primary"
                             size="lg"
                             loading={isLoading}
-                            disabled={!validateForm()}
-                            glow={!isLoading && validateForm()}
+                            disabled={!isFormValid}
+                            glow={!isLoading && isFormValid}
                             className="px-12"
                         >
                             {isLoading ? 'Sending Transaction...' : 'Send Transaction'}

@@ -17,7 +17,7 @@ export async function signMessage(hash: `0x${string}`) {
 
 export function getRPC_URL(chainId: string | number, provider?: string) {
     console.log(`getRPC_URL: ${chainId}, provider: ${provider}`);
-    if (provider === "PIMLICO") return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=pim_jMrxojGCj1SHLGpiJ5oJ5u`;
+    if (provider === "PIMLICO") return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${config.pimlico.apiKey}`;
     if (provider === "ALCHEMY" || !provider) return `https://${ALCHEMY_CHAIN_MAP[Number(chainId) as keyof typeof ALCHEMY_CHAIN_MAP]}.g.alchemy.com/v2/${config.alchemy.apiKey}`;
     return `https://${provider}${chainId}`;
 }
@@ -66,5 +66,4 @@ export const isHexString = (value: string): value is `0x${string}` => {
 export const isValidPrivateKey = (privateKey: string): privateKey is `0x${string}` => {
     return isHexString(privateKey) && privateKey.length === 66; // 0x + 64 hex chars
 };
-
 

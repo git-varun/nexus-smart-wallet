@@ -35,7 +35,7 @@ export function useTransactionHistoryBackend() {
         to: Address,
         data?: string,
         value?: bigint,
-        bundler: string = 'alchemy' // Default bundler
+        providers?: { bundlerID: string; paymasterID: string; walletID: string; chainId: number }
     ): Promise<GasEstimate | null> => {
         try {
             setIsEstimating(true);
@@ -45,7 +45,21 @@ export function useTransactionHistoryBackend() {
                 throw new Error('Authentication token not available');
             }
 
-            const response = await apiClient.estimateGas(token, currentChainId, bundler, to, data, value);
+            const activeChainId = providers?.chainId || currentChainId;
+            const bundlerID = providers?.bundlerID || 'ALCHEMY';
+            const paymasterID = providers?.paymasterID || 'ALCHEMY';
+            const walletID = providers?.walletID || ''; // Should be the smart account address/ID
+
+            const response = await apiClient.estimateGas(
+                token, 
+                activeChainId, 
+                bundlerID, 
+                paymasterID, 
+                walletID, 
+                to, 
+                data, 
+                value
+            );
 
             if (response.success && response.data) {
                 setGasEstimate(response.data);
@@ -75,7 +89,7 @@ export function useTransactionHistoryBackend() {
         to: Address,
         data?: string,
         value?: bigint,
-        providers?: { bundler: string; paymaster: string; chainId: number }
+        providers?: { bundlerID: string; paymasterID: string; walletID: string; chainId: number }
     ): Promise<TransactionResult> => {
         try {
             setIsLoading(true);

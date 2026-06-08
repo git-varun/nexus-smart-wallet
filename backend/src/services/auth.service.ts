@@ -12,7 +12,10 @@ const SALT_ROUNDS = 12;
  * Generate JWT token for user authentication
  */
 export function generateToken(userId: string, email?: string): string {
-    const jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+        throw new Error('JWT_SECRET is not defined in environment variables');
+    }
 
     return jwt.sign(
         {userId, email},
@@ -26,7 +29,10 @@ export function generateToken(userId: string, email?: string): string {
  */
 export function verifyToken(token: string): { userId: string; email?: string } | null {
     try {
-        const jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+            throw new Error('JWT_SECRET is not defined in environment variables');
+        }
         const decoded = jwt.verify(token, jwtSecret) as any;
         return {
             userId: decoded.userId,

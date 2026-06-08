@@ -3,11 +3,11 @@ import {DashboardLayout} from './DashboardLayout';
 import {AccountOverview} from './AccountOverview';
 import {AccountCreation} from './AccountCreation';
 import {TransactionInterface} from './TransactionInterface';
-import {SessionKeyManager} from '../session/SessionKeyManager';
 import {UserProfile} from './UserProfile';
 import {useBackendSmartAccount} from '@/hooks/useBackendSmartAccount.ts';
+import {ErrorBoundary} from '../ErrorBoundary';
 
-type DashboardSection = 'overview' | 'accounts' | 'transactions' | 'sessions' | 'profile';
+type DashboardSection = 'overview' | 'accounts' | 'transactions' | 'profile';
 
 export const Dashboard: React.FC = () => {
     const [currentSection, setCurrentSection] = useState<DashboardSection>('overview');
@@ -24,11 +24,11 @@ export const Dashboard: React.FC = () => {
         setHasAccounts(userHasAccounts);
         setIsLoadingAccounts(false);
 
-        // If no accounts exist, redirect to account creation
-        if (!userHasAccounts) {
+        // If no accounts exist and we are not already on the accounts or profile page, redirect to account creation
+        if (userHasAccounts === false && currentSection !== 'accounts' && currentSection !== 'profile') {
             setCurrentSection('accounts');
         }
-    }, [userAccounts, authLoading]);
+    }, [userAccounts, authLoading, currentSection]);
 
     // Show loading state while checking accounts
     if (isLoadingAccounts) {
@@ -77,10 +77,12 @@ export const Dashboard: React.FC = () => {
                 );
             case 'transactions':
                 return <TransactionInterface/>;
-            case 'sessions':
-                return <SessionKeyManager/>;
             case 'profile':
-                return <UserProfile/>;
+                return (
+                    <ErrorBoundary>
+                        <UserProfile/>
+                    </ErrorBoundary>
+                );
             default:
                 return <AccountOverview/>;
         }

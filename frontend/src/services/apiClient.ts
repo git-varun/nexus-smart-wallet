@@ -24,6 +24,8 @@ interface SmartAccountInfo {
     address: Address;
     chainId: number;
     isDeployed: boolean;
+    walletID: string;
+    accountType: string;
     balance?: string;
     nonce?: number;
     createdAt: string;
@@ -96,8 +98,8 @@ class ApiClient {
     private baseUrl: string;
 
     constructor() {
-        // Use environment variable or default to backend port 3001
-        this.baseUrl = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:3001';
+        // Use environment variable or default to the backend dev port.
+        this.baseUrl = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:3000';
     }
 
     // Authentication API - Updated to match backend routes
@@ -132,14 +134,13 @@ class ApiClient {
         });
     }
 
-    async authenticate(email: string): Promise<ApiResponse<{
+    async authenticate(email: string, password: string): Promise<ApiResponse<{
         user: User;
         token: string;
-        smartAccountAddress?: string
     }>> {
-        return this.request<{ user: User; token: string; smartAccountAddress?: string }>('/api/auth/authenticate', {
+        return this.request<{ user: User; token: string }>('/api/auth/login', {
             method: 'POST',
-            body: JSON.stringify({email}),
+            body: JSON.stringify({ email, password }),
         });
     }
 
@@ -156,23 +157,16 @@ class ApiClient {
     }
 
     // Account API - Updated to match backend structure
-    async createSmartAccount(token: string, chainId?: number, accountType?: string): Promise<ApiResponse<{
-        smartAccount: SmartAccountInfo
-    }>> {
-        const payload: any = {};
-        if (chainId) {
-            payload.chainId = chainId;
-        }
-        if (accountType) {
-            payload.accountType = accountType;
-        }
-
+    async createSmartAccount(
+        token: string,
+        chainId: number,
+        walletID: string,
+        accountType: string = 'default'
+    ): Promise<ApiResponse<{ smartAccount: SmartAccountInfo }>> {
         return this.request<{ smartAccount: SmartAccountInfo }>('/api/accounts/create', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            },
-            body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined,
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ chainId, walletID, accountType }),
         });
     }
 
@@ -184,6 +178,22 @@ class ApiClient {
 
         const query = searchParams.toString();
         return this.request<{ account: SmartAccountInfo }>(`/api/accounts/${address}${query ? `?${query}` : ''}`);
+    }
+
+    async deploySmartAccount(
+        token: string,
+        chainId: number,
+        walletID: string,
+        paymasterID: string = 'ALCHEMY',
+        bundlerID: string = 'ALCHEMY'
+    ): Promise<ApiResponse<{ transaction: TransactionResult; account?: SmartAccountInfo }>> {
+        return this.request<{ transaction: TransactionResult; account?: SmartAccountInfo }>('/api/transactions/deploy', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({chainId, walletID, paymasterID, bundlerID}),
+        });
     }
 
     async getUserAccounts(token: string, chainId?: number): Promise<ApiResponse<{ accounts: SmartAccountInfo[] }>> {
@@ -206,7 +216,7 @@ class ApiClient {
         to: Address,
         data?: string,
         value?: bigint,
-        providers?: { bundler: string; paymaster: string; chainId: number }
+        providers?: { bundlerID: string; paymasterID: string; walletID: string; chainId: number }
     ): Promise<ApiResponse<{ transaction: TransactionResult }>> {
         const payload: any = {
             to,
@@ -216,8 +226,9 @@ class ApiClient {
 
         // Add provider information if provided
         if (providers) {
-            payload.bundlerId = providers.bundler;  // Backend expects bundlerId, not bundler
-            payload.paymaster = providers.paymaster;
+            payload.bundlerID = providers.bundlerID;
+            payload.paymasterID = providers.paymasterID;
+            payload.walletID = providers.walletID;
             payload.chainId = providers.chainId;
         }
 
@@ -253,10 +264,54 @@ class ApiClient {
         });
     }
 
+    // Profile API
+    async getProfile(token: string): Promise<ApiResponse<User>> {
+        return this.request<User>('/api/profile', {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+        });
+    }
+
+    async updateProfile(token: string, data: any): Promise<ApiResponse<User>> {
+        return this.request<User>('/api/profile', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+
+    async checkUsernameAvailability(token: string, username: string): Promise<ApiResponse<{ available: boolean }>> {
+        return this.request<{ available: boolean }>(`/api/username/check?username=${encodeURIComponent(username)}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+        });
+    }
+
+    async uploadAvatar(token: string, file: File): Promise<ApiResponse<{ profileImageUrl: string }>> {
+        const formData = new FormData();
+        formData.append('profileImage', file);
+
+        return this.request<{ profileImageUrl: string }>('/api/avatar/upload', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                // Fetch will automatically set the correct boundary for FormData
+                'Content-Type': undefined as any,
+            },
+            body: formData,
+        });
+    }
+
     async estimateGas(
         token: string,
         chainId: number,
-        bundler: string,
+        bundlerID: string,
+        paymasterID: string,
+        walletID: string,
         to: Address,
         data?: string,
         value?: bigint
@@ -266,14 +321,16 @@ class ApiClient {
             data: data || '0x',
             value: value ? value.toString() : '0',
             chainId,
-            bundler
+            bundlerID,
+            paymasterID,
+            walletID
         };
 
         return this.request<{
             gasEstimate: string;
             gasLimit: string;
             breakdown: any
-        }>('/api/transactions/estimate-gas', {
+        }>('/api/transactions/estimate_gas', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -287,8 +344,26 @@ class ApiClient {
         return this.request<{ success: boolean; timestamp: string; database: any; system: any }>('/api/health');
     }
 
-    // TODO: Session Key API - To be implemented in future versions
-    // TODO: Recovery API - To be implemented in future versions
+    // Session Key API
+    async createSessionKey(token: string, data: any): Promise<ApiResponse<any>> {
+        return this.request<any>('/api/sessions/create', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getSessionKeys(token: string, chainId: number): Promise<ApiResponse<any[]>> {
+        return this.request<any[]>(`/api/sessions?chainId=${chainId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+        });
+    }
+
+    // Recovery API - To be implemented in future versions
 
     // System stats
     async getSystemStats(): Promise<ApiResponse<{ users: any; accounts: any; transactions: any; sessions: any }>> {
@@ -301,12 +376,18 @@ class ApiClient {
     ): Promise<ApiResponse<T>> {
         const url = `${this.baseUrl}${endpoint}`;
 
+        const headers: any = {
+            'Content-Type': 'application/json',
+            ...options.headers,
+        };
+
+        if (headers['Content-Type'] === null || headers['Content-Type'] === undefined) {
+            delete headers['Content-Type'];
+        }
+
         const config: RequestInit = {
             ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
+            headers,
         };
 
         try {

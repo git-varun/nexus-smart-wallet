@@ -1,12 +1,12 @@
 // frontend/src/hooks/useSessionKeys.ts
 import {useCallback, useEffect, useState} from 'react';
-import {useSmartAccount} from './useSmartAccount';
+import {useBackendSmartAccount} from './useBackendSmartAccount';
 import {useToast} from './useToast';
 import {CreateSessionKeyParams, SessionKey} from '../types/session';
 import {apiClient, SessionKey as ApiSessionKey, SessionPermission} from '../services/apiClient';
 
 export const useSessionKeys = () => {
-    const {smartAccountAddress} = useSmartAccount();
+    const {smartAccountAddress, token, currentChainId} = useBackendSmartAccount();
     const {toast} = useToast();
 
     const [sessionKeys, setSessionKeys] = useState<SessionKey[]>([]);
@@ -34,11 +34,11 @@ export const useSessionKeys = () => {
 
     // Fetch session keys
     const fetchSessionKeys = useCallback(async () => {
-        if (!smartAccountAddress) return;
+        if (!smartAccountAddress || !token) return;
 
         setIsLoading(true);
         try {
-            const response = await apiClient.getSessionKeys();
+            const response = await apiClient.getSessionKeys(token, currentChainId);
 
             if (response.success && response.data) {
                 const convertedKeys = response.data.map(convertApiSessionKey);
@@ -56,12 +56,12 @@ export const useSessionKeys = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [smartAccountAddress, toast]);
+    }, [smartAccountAddress, token, currentChainId, toast]);
 
     // Create session key
     const createSessionKey = useCallback(async (params: CreateSessionKeyParams) => {
-        if (!smartAccountAddress) {
-            throw new Error('Smart account not connected');
+        if (!smartAccountAddress || !token) {
+            throw new Error('Smart account not connected or not authenticated');
         }
 
         setIsCreating(true);
@@ -75,9 +75,13 @@ export const useSessionKeys = () => {
                 }
             ];
 
-            const expiresAt = params.expiryTime ? params.expiryTime * 1000 : undefined;
+            const expiresAt = params.expiryTime ? new Date(params.expiryTime * 1000).toISOString() : undefined;
 
-            const response = await apiClient.createSessionKey(permissions, expiresAt);
+            const response = await apiClient.createSessionKey(token, {
+                permissions,
+                expiresAt,
+                chainId: currentChainId
+            });
 
             if (response.success) {
                 toast({
@@ -102,7 +106,7 @@ export const useSessionKeys = () => {
         } finally {
             setIsCreating(false);
         }
-    }, [smartAccountAddress, toast, fetchSessionKeys]);
+    }, [smartAccountAddress, token, currentChainId, toast, fetchSessionKeys]);
 
     // Validate session key
     const validateSessionKey = useCallback(async (sessionKeyId: string): Promise<boolean> => {
