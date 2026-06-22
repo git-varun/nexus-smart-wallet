@@ -4,6 +4,7 @@ import {Card} from './Card';
 import {Button} from './Button';
 import {cn} from '../../utils/cn';
 import {getPaymasterById, PAYMASTER_PROVIDERS} from '../../config/paymasters';
+import {useCapabilities} from '../../hooks/useCapabilities';
 
 interface PaymasterSelectorProps {
     selectedPaymaster: string;
@@ -25,11 +26,20 @@ export const PaymasterSelector: React.FC<PaymasterSelectorProps> = ({
     const [sponsorshipFilter, setSponsorshipFilter] = useState<SponsorshipFilter>('all');
     const [expandedPaymaster, setExpandedPaymaster] = useState<string | null>(null);
 
+    const { capabilities } = useCapabilities();
     const selectedPaymasterConfig = getPaymasterById(selectedPaymaster);
+
+    const supportedPaymastersList = useMemo(() => {
+        if (!capabilities) return ['alchemy']; // Default fallback
+        return capabilities.supportedPaymasters.map(p => p.toLowerCase());
+    }, [capabilities]);
 
     // Filter paymasters based on selected filters and chain compatibility
     const filteredPaymasters = useMemo(() => {
         let paymasters = Object.values(PAYMASTER_PROVIDERS);
+
+        // Filter by capabilities
+        paymasters = paymasters.filter(p => supportedPaymastersList.includes(p.id.toLowerCase()));
 
         // Filter by chain compatibility
         if (selectedChainId) {
@@ -53,7 +63,7 @@ export const PaymasterSelector: React.FC<PaymasterSelectorProps> = ({
             }
             return a.displayName.localeCompare(b.displayName);
         });
-    }, [selectedChainId, sponsorshipFilter]);
+    }, [selectedChainId, sponsorshipFilter, supportedPaymastersList]);
 
     const handlePaymasterSelect = (paymasterId: string) => {
         onPaymasterSelect(paymasterId);

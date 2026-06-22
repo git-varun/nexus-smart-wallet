@@ -1,12 +1,12 @@
 import mongoose, {Document, Schema} from 'mongoose';
 
-export type TransactionStatus = 'pending' | 'confirmed' | 'failed';
+export type TransactionStatus = 'pending' | 'queued' | 'processing' | 'submitted' | 'confirmed' | 'failed' | 'retrying' | 'cancelled';
 
 export interface ITransaction extends Document {
     userId: string;
     accountId: string;
-    hash: string;
-    userOpHash: string;
+    hash?: string;
+    userOpHash?: string;
     to?: string;
     value?: string;
     data?: string;
@@ -16,6 +16,24 @@ export interface ITransaction extends Document {
     gasUsed?: string;
     status: TransactionStatus;
     chainId: number;
+    queuedAt?: Date;
+    startedAt?: Date;
+    submittedAt?: Date;
+    confirmedAt?: Date;
+    completedAt?: Date;
+    executionDuration?: number;
+    queueDuration?: number;
+    blockchainDuration?: number;
+    retryCount: number;
+    failureReason?: string;
+    workerId?: string;
+    rpcEndpoint?: string;
+    idempotencyKey?: string;
+    calls?: {
+        to: string;
+        value: string;
+        data: string;
+    }[];
     createdAt: Date;
     updatedAt: Date;
 }
@@ -31,11 +49,11 @@ const transactionSchema = new Schema<ITransaction>({
     },
     hash: {
         type: String,
-        required: true
+        required: false
     },
     userOpHash: {
         type: String,
-        required: true
+        required: false
     },
     to: {
         type: String,
@@ -68,12 +86,62 @@ const transactionSchema = new Schema<ITransaction>({
     },
     status: {
         type: String,
-        enum: ['pending', 'confirmed', 'failed'],
+        enum: ['pending', 'queued', 'processing', 'submitted', 'confirmed', 'failed', 'retrying', 'cancelled'],
         default: 'pending'
     },
     chainId: {
         type: Number,
         required: true
+    },
+    queuedAt: {
+        type: Date
+    },
+    startedAt: {
+        type: Date
+    },
+    submittedAt: {
+        type: Date
+    },
+    confirmedAt: {
+        type: Date
+    },
+    completedAt: {
+        type: Date
+    },
+    executionDuration: {
+        type: Number
+    },
+    queueDuration: {
+        type: Number
+    },
+    blockchainDuration: {
+        type: Number
+    },
+    retryCount: {
+        type: Number,
+        default: 0
+    },
+    failureReason: {
+        type: String
+    },
+    workerId: {
+        type: String
+    },
+    rpcEndpoint: {
+        type: String
+    },
+    idempotencyKey: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    calls: {
+        type: [{
+            to: { type: String, required: true, lowercase: true },
+            value: { type: String, default: '0' },
+            data: { type: String, default: '0x' }
+        }],
+        required: false
     },
     createdAt: {
         type: Date,
@@ -84,6 +152,13 @@ const transactionSchema = new Schema<ITransaction>({
         default: Date.now
     }
 });
+
+// Database indexes for query optimization and worker reliability
+transactionSchema.index({ userId: 1, chainId: 1, createdAt: -1 });
+transactionSchema.index({ status: 1, createdAt: 1 });
+transactionSchema.index({ hash: 1 }, { unique: true, sparse: true });
+transactionSchema.index({ userOpHash: 1 }, { unique: true, sparse: true });
+transactionSchema.index({ status: 1, chainId: 1, accountId: 1 });
 
 transactionSchema.set('toJSON', {
     transform: function (_doc, ret) {

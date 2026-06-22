@@ -1,9 +1,10 @@
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {motion} from 'framer-motion';
 import {Card} from '../ui/Card';
 import {Button} from '../ui/Button';
 import {ChainSelector} from '../ui/ChainSelector';
 import {useBackendSmartAccount} from '@/hooks/useBackendSmartAccount.ts';
+import {useCapabilities} from '@/hooks/useCapabilities';
 import {apiClient} from '@/services/apiClient.ts';
 import {DEFAULT_CHAIN_ID, getChainById} from '@/config/chains.ts';
 import {DEFAULT_ACCOUNT_TYPE, getAccountTypeById} from '@/config/accountTypes.ts';
@@ -29,6 +30,12 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
     const [walletConnectFailed, setWalletConnectFailed] = useState(false);
 
     const {token, user} = useBackendSmartAccount();
+    const {capabilities} = useCapabilities();
+
+    const supportedWalletsList = useMemo(() => {
+        if (!capabilities) return ['alchemy']; // Default fallback
+        return capabilities.supportedWallets.map(w => w.toLowerCase());
+    }, [capabilities]);
 
     const getBackendWalletID = (provider?: string): BackendWalletID => {
         if (provider === 'kernel') return 'KERNEL';
@@ -428,7 +435,7 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
                                 recommended: false,
                                 provider: 'Biconomy'
                             }
-                        ].map((accountType) => (
+                        ].filter(accountType => supportedWalletsList.includes(accountType.provider.toLowerCase())).map((accountType) => (
                             <motion.div
                                 key={accountType.id}
                                 whileHover={{scale: 1.02}}

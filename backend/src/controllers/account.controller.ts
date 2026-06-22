@@ -181,7 +181,9 @@ export async function getSmartAccountDetails(req: AuthenticatedRequest, res: Res
             return;
         }
 
-        const result = await getAccountDetails(address, parseInt(chainId as string));
+        const chainIdStr = typeof chainId === 'string' ? chainId : String(chainId);
+        const addressStr = typeof address === 'string' ? address : String(address);
+        const result = await getAccountDetails(addressStr, parseInt(chainIdStr, 10));
 
         if (result.success) {
             res.status(200).json({

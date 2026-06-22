@@ -15,13 +15,7 @@ export const config = {
     alchemy: {
         apiKey: process.env.ALCHEMY_API_KEY || '',
         policyId: process.env.ALCHEMY_POLICY_ID || '',
-        walletApiUrl: `https://api.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY || 'demo'}`,
-    },
-
-    // Thirdweb
-    thirdweb: {
-        clientId: process.env.THIRDWEB_CLIENT_ID || '',
-        secretKey: process.env.THIRDWEB_SECRET_KEY || '',
+        walletApiUrl: process.env.ALCHEMY_API_KEY ? `https://api.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : '',
     },
 
     // Pimlico
@@ -39,7 +33,7 @@ export const config = {
     // Database
     database: {
         mongodb: {
-            uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/nexus-wallet',
+            uri: process.env.MONGODB_URI || '',
             options: {
                 maxPoolSize: 10,
                 serverSelectionTimeoutMS: 5000,
@@ -50,47 +44,77 @@ export const config = {
 
     // Security
     security: {
-        jwtSecret: process.env.JWT_SECRET || 'dev-secret-key-change-in-production',
-        tokenExpiryHours: 24
+        jwtSecret: process.env.JWT_SECRET || '',
+        tokenExpiryHours: 24,
+        metricsKey: process.env.METRICS_KEY || ''
     }
 };
 
 export function validateConfig(): void {
-    const required = [
-        {key: 'ALCHEMY_API_KEY', value: config.alchemy.apiKey},
-        {key: 'MONGODB_URI', value: config.database.mongodb.uri}
-    ];
+    const errors: string[] = [];
 
-    const thirdwebOptional = [
-        {key: 'THIRDWEB_CLIENT_ID', value: config.thirdweb.clientId},
-        {key: 'THIRDWEB_SECRET_KEY', value: config.thirdweb.secretKey}
-    ];
+    // 1. Validate MONGODB_URI
+    const mongoUri = config.database.mongodb.uri;
+    if (!mongoUri) {
+        errors.push('MONGODB_URI is required. Please set it in environment variables.');
+    } else if (!mongoUri.startsWith('mongodb://') && !mongoUri.startsWith('mongodb+srv://')) {
+        errors.push(`Invalid MONGODB_URI format: ${mongoUri}. Must start with mongodb:// or mongodb+srv://`);
+    }
 
-    // Only validate in production or when explicitly needed
-    if (config.nodeEnv === 'production') {
-        for (const {key, value} of required) {
-            if (!value) throw new Error(`${key} is required`);
+    // 2. Validate ALCHEMY_API_KEY
+    if (!config.alchemy.apiKey) {
+        errors.push('ALCHEMY_API_KEY is required. Please set it in environment variables.');
+    }
+
+    // 3. Validate PIMLICO_API_KEY
+    if (!config.pimlico.apiKey) {
+        errors.push('PIMLICO_API_KEY is required. Please set it in environment variables.');
+    }
+
+    // 4. Validate MASTER_WALLET_PRIVATE_KEY
+    const pk = config.centralWallet.privateKey;
+    if (!pk) {
+        errors.push('MASTER_WALLET_PRIVATE_KEY is required. Please set it in environment variables.');
+    } else if (!/^0x[a-fA-F0-9]{64}$/.test(pk)) {
+        errors.push('MASTER_WALLET_PRIVATE_KEY must be a valid 32-byte hex string (0x followed by 64 hex characters)');
+    } else if (pk.toLowerCase() === '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef') {
+        errors.push('MASTER_WALLET_PRIVATE_KEY cannot use the default development key (must be configured with a secure custom value)');
+    }
+
+    // 5. Validate JWT_SECRET
+    const jwtSecret = config.security.jwtSecret;
+    if (!jwtSecret) {
+        errors.push('JWT_SECRET is required. Please set it in environment variables.');
+    } else if (jwtSecret === 'dev-secret-key-change-in-production') {
+        errors.push('JWT_SECRET cannot use the default developer key (must be configured with a secure custom value)');
+    } else if (jwtSecret.length < 32) {
+        errors.push('JWT_SECRET must be at least 32 characters long in all modes for adequate token security');
+    }
+
+    // 6. Validate METRICS_KEY in production
+    if (config.nodeEnv === 'production' && !config.security.metricsKey) {
+        errors.push('METRICS_KEY is required in production mode to secure the metrics endpoint.');
+    }
+
+    // 7. Validate CORS origins
+    if (config.corsOrigins) {
+        for (const origin of config.corsOrigins) {
+            if (origin !== '*' && !origin.startsWith('http://') && !origin.startsWith('https://')) {
+                errors.push(`Invalid CORS origin: ${origin}. Must start with http:// or https://, or be '*'`);
+            }
         }
     }
 
-    // Validate thirdweb config if any thirdweb keys are provided
-    const hasThirdwebConfig = thirdwebOptional.some(({value}) => !!value);
-    if (hasThirdwebConfig) {
-        for (const {key, value} of thirdwebOptional) {
-            if (!value) console.warn(`Warning: ${key} not set - thirdweb functionality may be limited`);
+    // If any validation errors exist, crash startup immediately
+    if (errors.length > 0) {
+        console.error('❌ Configuration validation failed:');
+        for (const error of errors) {
+            console.error(`  - ${error}`);
         }
-    }
-
-    // Validate wallet key format if provided
-    if (config.centralWallet.privateKey) {
-        if (!config.centralWallet.privateKey.startsWith('0x') ||
-            config.centralWallet.privateKey.length !== 66) {
-            throw new Error('MASTER_WALLET_PRIVATE_KEY must be valid hex (0x + 64 chars)');
-        }
+        throw new Error(`Configuration validation failed: ${errors.join('; ')}`);
     }
 }
 
 export const SUPPORTED_WALLETS = ["ALCHEMY", "SIMPLE", "SAFE", "KERNEL", "BICONOMY", "TRUST"];
 export const SUPPORTED_PAYMASTER = ["ALCHEMY", "PIMLICO"];
 export const SUPPORTED_BUNDLER = ["ALCHEMY", "PIMLICO"];
-

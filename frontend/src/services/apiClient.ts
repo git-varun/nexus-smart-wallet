@@ -40,29 +40,33 @@ interface TransactionRequest {
 
 interface TransactionResult {
     id: string;
-    hash: string;
+    hash?: string;
     userOpHash?: string;
     to: string;
     value?: string;
     data?: string;
-    status: 'pending' | 'confirmed' | 'failed';
+    status: 'pending' | 'queued' | 'processing' | 'submitted' | 'confirmed' | 'failed' | 'retrying' | 'cancelled';
     gasUsed?: string;
+    failureReason?: string;
     createdAt: string;
     updatedAt: string;
 }
 
 interface TransactionHistory {
     id: string;
-    hash: string;
+    hash?: string;
     userOpHash?: string;
     to: Address;
     value: string;
     data?: string;
-    status: 'pending' | 'confirmed' | 'failed';
+    status: 'pending' | 'queued' | 'processing' | 'submitted' | 'confirmed' | 'failed' | 'retrying' | 'cancelled';
     gasUsed?: string;
+    failureReason?: string;
     createdAt: string;
     updatedAt: string;
 }
+
+
 
 interface GasEstimate {
     gasEstimate: string;
@@ -241,22 +245,59 @@ class ApiClient {
         });
     }
 
-    async getTransactionByHash(hash: string): Promise<ApiResponse<{ transaction: TransactionHistory }>> {
-        return this.request<{ transaction: TransactionHistory }>(`/api/transactions/${hash}`);
+    async getTransactionByHash(token: string, idOrHash: string): Promise<ApiResponse<{ transaction: TransactionHistory }>> {
+        return this.request<{ transaction: TransactionHistory }>(`/api/transactions/${idOrHash}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+        });
     }
 
-    async getTransactionHistory(token: string, chainId?: number, limit?: number): Promise<ApiResponse<{
+
+    async getTransactionHistory(
+        token: string, 
+        params: {
+            chainId?: number;
+            limit?: number;
+            page?: number;
+            status?: string;
+            search?: string;
+            to?: string;
+            paymasterID?: string;
+            bundlerID?: string;
+            sortBy?: string;
+            sortOrder?: 'asc' | 'desc';
+        } = {}
+    ): Promise<ApiResponse<{
         transactions: TransactionHistory[];
-        count: number
+        pagination: {
+            totalCount: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+        }
     }>> {
         const searchParams = new URLSearchParams();
-        if (chainId) searchParams.append('chainId', chainId.toString());
-        if (limit) searchParams.append('limit', limit.toString());
+        if (params.chainId) searchParams.append('chainId', params.chainId.toString());
+        if (params.limit) searchParams.append('limit', params.limit.toString());
+        if (params.page) searchParams.append('page', params.page.toString());
+        if (params.status) searchParams.append('status', params.status);
+        if (params.search) searchParams.append('search', params.search);
+        if (params.to) searchParams.append('to', params.to);
+        if (params.paymasterID) searchParams.append('paymasterID', params.paymasterID);
+        if (params.bundlerID) searchParams.append('bundlerID', params.bundlerID);
+        if (params.sortBy) searchParams.append('sortBy', params.sortBy);
+        if (params.sortOrder) searchParams.append('sortOrder', params.sortOrder);
 
         const query = searchParams.toString();
         return this.request<{
             transactions: TransactionHistory[];
-            count: number
+            pagination: {
+                totalCount: number;
+                page: number;
+                limit: number;
+                totalPages: number;
+            }
         }>(`/api/transactions/history${query ? `?${query}` : ''}`, {
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -363,12 +404,73 @@ class ApiClient {
         });
     }
 
+    async revokeSessionKey(token: string, publicKey: string): Promise<ApiResponse<any>> {
+        return this.request<any>('/api/sessions/revoke', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ publicKey }),
+        });
+    }
+
+    async validateSessionKey(token: string, publicKey: string, targetContract?: string, functionSelector?: string, value?: string): Promise<ApiResponse<{ isValid: boolean }>> {
+        return this.request<{ isValid: boolean }>('/api/sessions/validate', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                publicKey,
+                targetContract: targetContract || '0x0000000000000000000000000000000000000000',
+                functionSelector: functionSelector || '0x00000000',
+                value: value || '0'
+            }),
+        });
+    }
+
+    async sendTransactionBatch(token: string, payload: {
+        calls: { to: string; value?: string; data?: string }[];
+        chainId: number;
+        walletID: string;
+        paymasterID: string;
+        bundlerID: string;
+        idempotencyKey?: string;
+    }): Promise<ApiResponse<any>> {
+        return this.request<any>('/api/transactions/batch', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async getCapabilities(): Promise<ApiResponse<any>> {
+        return this.request<any>('/api/capabilities');
+    }
+
+    async getPortfolio(token: string, address: string, chainId: number): Promise<ApiResponse<any>> {
+        return this.request<any>(`/api/portfolio?address=${address}&chainId=${chainId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+        });
+    }
+
+    async refreshPortfolio(token: string, address: string, chainId: number): Promise<ApiResponse<any>> {
+        return this.request<any>('/api/portfolio/refresh', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ address, chainId }),
+        });
+    }
+
     // Recovery API - To be implemented in future versions
 
-    // System stats
-    async getSystemStats(): Promise<ApiResponse<{ users: any; accounts: any; transactions: any; sessions: any }>> {
-        return this.request<{ users: any; accounts: any; transactions: any; sessions: any }>('/api/stats');
-    }
+
 
     private async request<T>(
         endpoint: string,

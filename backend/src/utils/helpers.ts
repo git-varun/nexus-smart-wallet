@@ -1,18 +1,11 @@
 import {config} from "../config/config";
-import {createPublicClient, hexToBytes, http, keccak256, toBytes,} from "viem";
-import {privateKeyToAccount} from "viem/accounts";
+import {keccak256, toBytes} from "viem";
 import {ALCHEMY_CHAIN_MAP} from "../config/chain";
+import {custodialSigner} from "../services/signer.service";
+import {rpcProvider} from "../services/provider.service";
 
 export async function signMessage(hash: `0x${string}`) {
-    const privateKey = config.centralWallet.privateKey as `0x${string}`
-    if (isValidPrivateKey(privateKey)) {
-        const account = privateKeyToAccount(privateKey);
-        const messageBytes = hexToBytes(hash);
-        return await account.signMessage({
-            message: {raw: messageBytes}  // ensures Viem treats as raw binary data
-        });
-    }
-    throw new Error('Not a valid private key.');
+    return custodialSigner.signMessage(hash);
 }
 
 export function getRPC_URL(chainId: string | number, provider?: string) {
@@ -23,22 +16,17 @@ export function getRPC_URL(chainId: string | number, provider?: string) {
 }
 
 export async function getCentralAccount() {
-    const centralWalletPrivateKey = config.centralWallet.privateKey as `0x${string}`;
-    return privateKeyToAccount(centralWalletPrivateKey);
+    return custodialSigner.getViemAccount();
 }
 
 export async function getCentralAddress() {
-    const account = await getCentralAccount();
-    return account.address;
+    return custodialSigner.getAddress();
 }
 
 export async function getCentralWalletNonce(chainId: number) {
-    const rpc = getRPC_URL(chainId);
     const address = await getCentralAddress();
-    const client = createPublicClient({transport: http(rpc)});
-    return client.getTransactionCount({address});
+    return rpcProvider.getTransactionCount(address, chainId);
 }
-
 
 // ==================== CRYPTOGRAPHIC UTILITIES ====================
 
@@ -49,7 +37,6 @@ export const generateSalt = (userId: string, chainId: number): string => {
     const saltBuffer = keccak256(toBytes(userId + chainId.toString()));
     return saltBuffer.slice(0, 10); // Use first 8 bytes + 0x prefix = 10 chars
 };
-
 
 // ==================== TYPE GUARDS ====================
 
@@ -66,4 +53,3 @@ export const isHexString = (value: string): value is `0x${string}` => {
 export const isValidPrivateKey = (privateKey: string): privateKey is `0x${string}` => {
     return isHexString(privateKey) && privateKey.length === 66; // 0x + 64 hex chars
 };
-

@@ -1,9 +1,22 @@
 import mongoose from "mongoose";
 import {config} from "../config/config";
-import {createServiceLogger} from "../utils";
+import {createServiceLogger, metrics} from "../utils";
 
 const logger = createServiceLogger("Database Service");
 let isConnected = false;
+
+// Register global query metrics tracking plugin
+mongoose.plugin((schema) => {
+    schema.pre(['find', 'findOne', 'findOneAndUpdate', 'updateOne', 'deleteOne', 'countDocuments'], function(this: any) {
+        this._startTime = Date.now();
+    });
+    schema.post(['find', 'findOne', 'findOneAndUpdate', 'updateOne', 'deleteOne', 'countDocuments'], function(this: any) {
+        if (this._startTime) {
+            const duration = Date.now() - this._startTime;
+            metrics.trackDbQuery(duration);
+        }
+    });
+});
 
 /**
  * Initialize MongoDB connection (idempotent)

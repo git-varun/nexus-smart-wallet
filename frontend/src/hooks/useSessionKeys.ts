@@ -67,17 +67,25 @@ export const useSessionKeys = () => {
         setIsCreating(true);
         try {
             // Convert frontend params to API format
-            const permissions: SessionPermission[] = [
-                {
-                    target: (params.allowedTargets?.[0] || smartAccountAddress) as `0x${string}`,
-                    allowedFunctions: ['transfer'], // Default allowed functions
-                    spendingLimit: params.spendingLimit,
-                }
-            ];
+            const permissions = (params.allowedTargets && params.allowedTargets.length > 0)
+                ? params.allowedTargets.map(target => ({
+                    target: target as `0x${string}`,
+                    allowedFunctions: ['*'], // Allow wildcard/all by default
+                    spendingLimit: params.spendingLimit
+                }))
+                : [
+                    {
+                        target: smartAccountAddress as `0x${string}`,
+                        allowedFunctions: ['*'],
+                        spendingLimit: params.spendingLimit
+                    }
+                ];
 
             const expiresAt = params.expiryTime ? new Date(params.expiryTime * 1000).toISOString() : undefined;
 
             const response = await apiClient.createSessionKey(token, {
+                ownerAddress: smartAccountAddress,
+                publicKey: params.sessionKey,
                 permissions,
                 expiresAt,
                 chainId: currentChainId
@@ -110,10 +118,10 @@ export const useSessionKeys = () => {
 
     // Validate session key
     const validateSessionKey = useCallback(async (sessionKeyId: string): Promise<boolean> => {
-        if (!smartAccountAddress) return false;
+        if (!smartAccountAddress || !token) return false;
 
         try {
-            const response = await apiClient.validateSessionKey(sessionKeyId);
+            const response = await apiClient.validateSessionKey(token, sessionKeyId);
 
             if (response.success && response.data) {
                 return response.data.isValid;
@@ -125,15 +133,15 @@ export const useSessionKeys = () => {
             console.error('Failed to validate session key:', error);
             return false;
         }
-    }, [smartAccountAddress]);
+    }, [smartAccountAddress, token]);
 
     // Revoke session key
     const revokeSessionKey = useCallback(async (sessionKeyAddress: string) => {
-        if (!smartAccountAddress) return;
+        if (!smartAccountAddress || !token) return;
 
         setIsRevoking(true);
         try {
-            const response = await apiClient.revokeSessionKey(sessionKeyAddress);
+            const response = await apiClient.revokeSessionKey(token, sessionKeyAddress);
 
             if (response.success) {
                 // Remove from local state
@@ -157,7 +165,7 @@ export const useSessionKeys = () => {
         } finally {
             setIsRevoking(false);
         }
-    }, [smartAccountAddress, toast]);
+    }, [smartAccountAddress, token, toast]);
 
     // Check expired session keys and update their status
     const checkExpiredKeys = useCallback(async () => {

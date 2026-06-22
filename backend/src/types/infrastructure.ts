@@ -3,7 +3,7 @@ import {Session} from './domain';
 
 
 export interface SessionDocument extends Omit<Session, 'id'>, Document {
-    _id: string;
+    _id: any;
 }
 
 // Database connection configuration

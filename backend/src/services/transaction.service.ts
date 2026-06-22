@@ -1,15 +1,14 @@
 import {transactionRepository} from '../repositories';
-import {createServiceLogger} from '../utils';
-import {getAlchemyPaymasterStubData, getUserOperationByHash} from "../scripts/alchemyApi";
-import {getUserOperationGasPrice, getUserOperationStatus_PM} from "../scripts/pimlicoApi";
-import {getAddress, Hex, isAddress, parseEther, zeroAddress} from 'viem'
-import {entryPoint07Address, UserOperationReceipt} from "viem/account-abstraction";
+import {createServiceLogger, getCentralAccount, getCentralWalletNonce, getRPC_URL, metrics} from '../utils';
+import {Address, getAddress, Hex, isAddress, parseEther, zeroAddress} from 'viem'
+import {entryPoint06Address, entryPoint07Address} from "viem/account-abstraction";
 import {TransactionInfo, TransactionRequest} from '../types';
 import {getUserAccount} from "./account.service";
-import {IAccount} from "../models";
-import {bundlerClient} from "../scripts/permissionless";
+import {IAccount, NonceModel, ITransaction} from "../models";
 import {updateAccount} from "../repositories/accountRepository";
-import {createTransaction} from "../repositories/transactionRepository";
+import {createTransaction, TransactionQueryFilters} from "../repositories/transactionRepository";
+import {rpcProvider, bundlerProvider, paymasterProvider} from "./provider.service";
+import {notificationService} from "./notification.service";
 
 
 const logger = createServiceLogger('TransactionService');
@@ -22,193 +21,204 @@ async function userAccount(userId: string, chainId: number, walletID: string): P
     return smartAccountResult.account;
 }
 
+function getEntryPointAddress(walletID: string): `0x${string}` {
+    return walletID === "TRUST" ? (entryPoint06Address as `0x${string}`) : (entryPoint07Address as `0x${string}`);
+}
+
 async function getPaymaster(paymasterID: string, userOption: any, entryPointAddress: `0x${string}`, chainId: number): Promise<Record<string, any>> {
-    if (paymasterID === "ALCHEMY") {
-        return await getAlchemyPaymasterStubData(userOption, entryPointAddress, chainId) as Record<string, any>;
-    }
-    return {};
+    return await paymasterProvider.getPaymasterStubData(paymasterID, userOption, entryPointAddress, chainId);
 }
 
 async function getGasPrice(bundlerId: string, chainId: number) {
-    if (bundlerId === "PIMLICO") {
-        const result: any = await getUserOperationGasPrice(chainId);
-        return {
-            maxFeePerGas: BigInt(result?.gasPrice?.fast.maxFeePerGas),
-            maxPriorityFeePerGas: BigInt(result?.gasPrice?.fast.maxPriorityFeePerGas),
-        };
-    }
+    return bundlerProvider.getGasPrice(chainId, bundlerId);
 }
 
 
-export async function deploySmartAccountService(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerId: string) {
-
+export async function deploySmartAccountService(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerId: string, idempotencyKey?: string) {
     try {
         const accountDetails = await userAccount(userId, chainId, walletID);
-        if (accountDetails.isDeployed) throw Error(`Deployed account ${userId} already deployed`);
-        const gasPrice = await getGasPrice(bundlerId, accountDetails.chainId);
-        const factory = accountDetails.walletID === "KERNEL" ? {} : {
-            factory: accountDetails.providerInfo?.get("factory") as Hex,
-            factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
-        }
-
-        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerId, paymasterID, accountDetails);
-        let paymasterData = {};
-        if (paymasterID === "ALCHEMY") {
-            const userOp: any = await client.prepareUserOperation({
-                calls: [{
-                    to: zeroAddress,
-                    value: parseEther('0'),
-                }],
-
-                ...factory,
-                ...gasPrice
-            })
-            paymasterData = await getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
-        }
-
-        const hash = await client.sendUserOperation({
-            calls: [{
-                to: zeroAddress,
-                value: parseEther('0'),
-            }],
-
-            ...paymasterData,
-            ...factory,
-            ...gasPrice
-        })
-        const receipt: UserOperationReceipt = await client.waitForUserOperationReceipt({
-            hash
-        })
-
-        if (receipt) {
-            let updatedAcc: IAccount | null = null;
-            if (receipt.success) {
-                updatedAcc = await updateAccount(accountDetails.id, {
-                    isDeployed: true,
-                    isActive: true
-                })
-                logger.info("Updated smart account", updatedAcc);
-            }
-
-            const transaction = await createTransaction({
-                userId: accountDetails.userId,
-                accountId: accountDetails.address,
-                hash: receipt.receipt.transactionHash,
-                userOpHash: receipt.userOpHash,
-                to: zeroAddress,
-                value: '0',
-                data: '0x',
-                bundlerID: bundlerId,
-                paymasterID,
-                walletID: accountDetails.walletID,
-                gasUsed: receipt.actualGasUsed?.toString(),
-                chainId: accountDetails.chainId,
-                status: receipt.success ? "confirmed" : "failed"
-            })
-
-            logger.info("Transaction successfully created", transaction);
-
+        if (accountDetails.isDeployed) {
             return {
                 success: true,
-                transaction: transaction,
-                account: updatedAcc,
+                message: "Account already deployed",
+                account: accountDetails
             };
         }
+
+        // Check if bytecode already exists on-chain (redeploy verification)
+        const client = rpcProvider.getPublicClient(chainId);
+        const bytecode = await client.getBytecode({ address: accountDetails.address as `0x${string}` });
+        if (bytecode && bytecode !== '0x') {
+            logger.info(`Redeploy verification: Account ${accountDetails.address} is already deployed on-chain.`);
+            await updateAccount(accountDetails.id, {
+                isDeployed: true,
+                isActive: true
+            });
+            // Update accountDetails local object
+            accountDetails.isDeployed = true;
+            accountDetails.isActive = true;
+            return {
+                success: true,
+                message: "Account already deployed on-chain. Sync completed.",
+                account: accountDetails
+            };
+        }
+
+        // Check idempotency
+        if (idempotencyKey) {
+            const existing = await transactionRepository.findTransactionByIdempotencyKey(idempotencyKey);
+            if (existing) {
+                return {
+                    success: true,
+                    transaction: existing,
+                    account: accountDetails
+                };
+            }
+        }
+
+        // Create queued transaction
+        const transaction = await transactionRepository.createTransaction({
+            userId: accountDetails.userId,
+            accountId: accountDetails.address,
+            to: zeroAddress,
+            value: '0',
+            data: '0x',
+            bundlerID: bundlerId,
+            paymasterID,
+            walletID: accountDetails.walletID,
+            chainId: accountDetails.chainId,
+            status: 'queued',
+            queuedAt: new Date(),
+            idempotencyKey
+        });
+
+        logger.info("Deployment transaction enqueued", transaction.id);
+
         return {
-            success: false,
-            transaction: hash,
-            account: null,
+            success: true,
+            transaction: transaction,
+            account: accountDetails,
         };
     } catch (error) {
-        logger.error('Deploy transaction failed', error instanceof Error ? error : new Error(String(error)));
+        logger.error('Enqueue deploy failed', error instanceof Error ? error : new Error(String(error)));
         return {
             success: false,
             error
         };
     }
-
 }
 
 export async function sendTransaction(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerId: string, request: TransactionRequest) {
     try {
-
-        logger.info('initiated', {userId, chainId, ...request});
+        logger.info('initiated send transaction enqueue', {userId, chainId, ...request});
 
         if (!isAddress(request.to)) throw new Error(`Invalid recipient address: ${request.to}`);
         const checksummedTo = getAddress(request.to);
 
+        // Check idempotency
+        if (request.idempotencyKey) {
+            const existing = await transactionRepository.findTransactionByIdempotencyKey(request.idempotencyKey);
+            if (existing) {
+                return {
+                    success: true,
+                    transaction: existing
+                };
+            }
+        }
+
         const accountDetails = await userAccount(userId, chainId, walletID);
-        const gasPrice = await getGasPrice(bundlerId, accountDetails.chainId);
-        const factory = accountDetails.walletID === "KERNEL" ? {} : {
-            factory: accountDetails.providerInfo?.get("factory") as Hex,
-            factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
-        }
 
-        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerId, paymasterID, accountDetails);
+        const transaction = await transactionRepository.createTransaction({
+            userId: accountDetails.userId,
+            accountId: accountDetails.address,
+            to: checksummedTo,
+            value: request.value?.toString() || '0',
+            data: request.data || '0x',
+            bundlerID: bundlerId,
+            paymasterID,
+            walletID: accountDetails.walletID,
+            chainId: accountDetails.chainId,
+            status: 'queued',
+            queuedAt: new Date(),
+            idempotencyKey: request.idempotencyKey
+        });
 
-        let paymasterData: Record<string, any> = {};
-        if (paymasterID === "ALCHEMY") {
-            const userOp: any = await client.prepareUserOperation({
-                calls: [{
-                    to: zeroAddress,
-                    value: parseEther('0'),
-                }],
+        logger.info("Transaction enqueued successfully", transaction.id);
 
-                ...factory,
-                ...gasPrice
-            })
-            paymasterData = await getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
-        }
-
-        const hash = await client.sendUserOperation({
-            calls: [{
-                to: checksummedTo,
-                data: request.data,
-                value: parseEther(request.value?.toString() || "0")
-            }],
-
-            ...paymasterData,
-            ...gasPrice
-        })
-        const receipt: UserOperationReceipt = await client.waitForUserOperationReceipt({
-            hash
-        })
-
-        if (receipt) {
-
-            const transaction = await transactionRepository.createTransaction({
-                userId: accountDetails.userId,
-                accountId: accountDetails.address,
-                hash: receipt.receipt.transactionHash,
-                userOpHash: receipt.userOpHash,
-                to: checksummedTo,
-                value: request.value?.toString() || '0',
-                data: request.data || '0x',
-                bundlerID: bundlerId,
-                paymasterID,
-                walletID: accountDetails.walletID,
-                gasUsed: receipt.actualGasUsed?.toString(),
-                chainId: accountDetails.chainId,
-                status: receipt.success ? "confirmed" : "failed"
-            })
-
-            logger.info("Transaction successfully created", transaction);
-
-            return {
-                success: true,
-                transaction: transaction,
-            };
-        }
         return {
-            success: false,
-            transaction: hash,
+            success: true,
+            transaction: transaction
         };
     } catch (error) {
-        logger.error('Transaction failed', error instanceof Error ? error : new Error(String(error)));
-
+        logger.error('Transaction enqueue failed', error instanceof Error ? error : new Error(String(error)));
         return {
             success: false,
-            error: error instanceof Error ? new Error(String(error)) : 'Transaction failed'
+            error: error instanceof Error ? error.message : 'Transaction enqueue failed'
+        };
+    }
+}
+
+export async function sendTransactionBatch(
+    userId: string,
+    chainId: number,
+    walletID: string,
+    paymasterID: string,
+    bundlerId: string,
+    request: {
+        calls: { to: string; value?: string | number; data?: string }[];
+        idempotencyKey?: string;
+    }
+) {
+    try {
+        logger.info('initiated send transaction batch enqueue', {userId, chainId, callsCount: request.calls.length});
+
+        // Validate recipient addresses in calls
+        const validatedCalls = request.calls.map(call => {
+            if (!isAddress(call.to)) throw new Error(`Invalid recipient address: ${call.to}`);
+            return {
+                to: getAddress(call.to),
+                value: call.value?.toString() || '0',
+                data: call.data || '0x'
+            };
+        });
+
+        // Check idempotency
+        if (request.idempotencyKey) {
+            const existing = await transactionRepository.findTransactionByIdempotencyKey(request.idempotencyKey);
+            if (existing) {
+                return {
+                    success: true,
+                    transaction: existing
+                };
+            }
+        }
+
+        const accountDetails = await userAccount(userId, chainId, walletID);
+
+        const transaction = await transactionRepository.createTransaction({
+            userId: accountDetails.userId,
+            accountId: accountDetails.address,
+            calls: validatedCalls,
+            bundlerID: bundlerId,
+            paymasterID,
+            walletID: accountDetails.walletID,
+            chainId: accountDetails.chainId,
+            status: 'queued',
+            queuedAt: new Date(),
+            idempotencyKey: request.idempotencyKey
+        });
+
+        logger.info("Batch transaction enqueued successfully", transaction.id);
+
+        return {
+            success: true,
+            transaction: transaction
+        };
+    } catch (error) {
+        logger.error('Transaction batch enqueue failed', error instanceof Error ? error : new Error(String(error)));
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Transaction batch enqueue failed'
         };
     }
 }
@@ -219,21 +229,44 @@ export async function estimateGas(
     walletID: string,
     paymasterID: string,
     bundlerId: string,
-    request: TransactionRequest
+    request: TransactionRequest & { calls?: { to: string; value?: string | number; data?: string }[] }
 ): Promise<{ success: boolean, gasEstimate?: any, error?: Error | string }> {
     try {
-
-        if (!isAddress(request.to)) throw new Error(`Invalid recipient address: ${request.to}`);
-        const checksummedTo = getAddress(request.to);
-
         const accountDetails = await userAccount(userId, chainId, walletID);
         const gasPrice = await getGasPrice(bundlerId, accountDetails.chainId);
         const factory = accountDetails.walletID === "KERNEL" ? {} : {
             factory: accountDetails.providerInfo?.get("factory") as Hex,
             factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
         };
-        const client = await bundlerClient(accountDetails.walletID, accountDetails.chainId, bundlerId, paymasterID, accountDetails);
+        const client = await bundlerProvider.getBundlerClient(
+            accountDetails.walletID,
+            accountDetails.chainId,
+            bundlerId,
+            paymasterID,
+            accountDetails
+        );
         let paymaster: Record<string, any> = {};
+
+        // Parse calls array or default to single call
+        let callsToEstimate: { to: Address; value: bigint; data: Hex }[] = [];
+        if (request.calls && request.calls.length > 0) {
+            callsToEstimate = request.calls.map(c => {
+                if (!isAddress(c.to)) throw new Error(`Invalid recipient address: ${c.to}`);
+                return {
+                    to: getAddress(c.to),
+                    value: parseEther(c.value?.toString() || "0"),
+                    data: c.data as Hex || "0x"
+                };
+            });
+        } else {
+            if (!isAddress(request.to || '')) throw new Error(`Invalid recipient address: ${request.to}`);
+            callsToEstimate = [{
+                to: getAddress(request.to!),
+                value: parseEther(request.value?.toString() || "0"),
+                data: request.data as Hex || "0x"
+            }];
+        }
+
         if (paymasterID === "ALCHEMY") {
             const userOp: any = await client.prepareUserOperation({
                 calls: [{
@@ -244,16 +277,12 @@ export async function estimateGas(
                 ...factory,
                 ...gasPrice
             })
-            paymaster = await getPaymaster(paymasterID, userOp, entryPoint07Address, chainId)
+            paymaster = await getPaymaster(paymasterID, userOp, getEntryPointAddress(accountDetails.walletID), chainId)
         }
 
 
         const gas = await client.estimateUserOperationGas({
-            calls: [{
-                to: checksummedTo,
-                data: request.data,
-                value: parseEther(request.value?.toString() || "0")
-            }],
+            calls: callsToEstimate,
 
             ...factory,
             ...paymaster,
@@ -286,13 +315,7 @@ export async function getUserOperationStatus(chainId: number, userOpHash: string
     try {
         logger.info('Getting user transaction stats', {bundlerId, chainId});
 
-        let result: any;
-        if (bundlerId === "ALCHEMY") {
-            result = await getUserOperationByHash(userOpHash);
-        }
-        if (bundlerId === "PIMLICO") {
-            result = await getUserOperationStatus_PM(userOpHash, chainId)
-        }
+        const result = await bundlerProvider.getUserOperation(userOpHash as Hex, chainId, bundlerId);
 
         console.log(result)
 
@@ -323,15 +346,24 @@ export async function getUserOperationStatus(chainId: number, userOpHash: string
     }
 }
 
-export async function getUserTransactionHistory(userId: string, chainId?: number): Promise<{
-    success: boolean,
-    transactions?: any,
-    error?: Error | string
+export async function getUserTransactionHistory(
+    userId: string,
+    filters: TransactionQueryFilters
+): Promise<{
+    success: boolean;
+    transactions?: any[];
+    pagination?: {
+        totalCount: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+    };
+    error?: Error | string;
 }> {
     try {
-        logger.info('Getting transaction history', {userId, chainId});
+        logger.info('Getting transaction history with filters', {userId, filters});
 
-        const transactions = await transactionRepository.findTransactionsByUserId(userId, chainId);
+        const { transactions, totalCount, page, limit } = await transactionRepository.findTransactionsWithFilters(userId, filters);
 
         const transactionInfos = transactions.map(tx => ({
             id: tx.id,
@@ -347,19 +379,27 @@ export async function getUserTransactionHistory(userId: string, chainId?: number
             gasUsed: tx.gasUsed,
             chainId: tx.chainId,
             status: tx.status,
+            failureReason: tx.failureReason,
+            calls: tx.calls,
             createdAt: tx.createdAt,
             updatedAt: tx.updatedAt
         }));
 
         logger.info('Transaction history retrieved', {
             userId,
-            chainId,
-            count: transactionInfos.length
+            count: transactionInfos.length,
+            totalCount
         });
 
         return {
             success: true,
-            transactions: transactionInfos
+            transactions: transactionInfos,
+            pagination: {
+                totalCount,
+                page,
+                limit,
+                totalPages: Math.ceil(totalCount / limit)
+            }
         };
 
     } catch (error) {
@@ -380,7 +420,7 @@ export async function getGasPriceObject(chainId: number, bundlerId: string): Pro
         logger.info('Getting gas price', {chainId, bundlerId});
 
         if (bundlerId) {
-            const result = await getUserOperationGasPrice(chainId);
+            const result = await bundlerProvider.getGasPriceRaw(chainId, bundlerId);
 
             return {
                 success: true,
@@ -398,5 +438,186 @@ export async function getGasPriceObject(chainId: number, bundlerId: string): Pro
             success: false,
             error: error instanceof Error ? error.message : 'Failed to get gas price'
         };
+    }
+}
+
+export async function getNextNonce(signerAddress: string, chainId: number): Promise<number> {
+    const onChainCount = await getCentralWalletNonce(chainId);
+    const record = await NonceModel.findOneAndUpdate(
+        { signerAddress: signerAddress.toLowerCase(), chainId },
+        { $setOnInsert: { nonce: onChainCount } },
+        { upsert: true, new: true }
+    );
+    const nextNonce = Math.max(record.nonce, onChainCount);
+    await NonceModel.updateOne(
+        { signerAddress: signerAddress.toLowerCase(), chainId },
+        { $set: { nonce: nextNonce + 1 } }
+    );
+    return nextNonce;
+}
+
+function checkIfTransient(errorMsg: string): boolean {
+    const transientKeywords = [
+        'timeout', 'rate limit', 'network', '429', '503', '502', '504',
+        'too many requests', 'underpriced', 'nonce too low', 'replace'
+    ];
+    return transientKeywords.some(keyword => errorMsg.toLowerCase().includes(keyword));
+}
+
+export async function executeTransactionOnChain(tx: ITransaction) {
+    const startedAt = new Date();
+    tx.startedAt = startedAt;
+    tx.status = 'processing';
+    await tx.save();
+
+    try {
+        const accountDetails = await userAccount(tx.userId, tx.chainId, tx.walletID || 'ALCHEMY');
+        const gasPrice = await getGasPrice(tx.bundlerID || 'ALCHEMY', tx.chainId);
+        const factory = accountDetails.walletID === "KERNEL" ? {} : {
+            factory: accountDetails.providerInfo?.get("factory") as Hex,
+            factoryData: accountDetails.providerInfo?.get("factoryData") as Hex
+        };
+
+        const client = await bundlerProvider.getBundlerClient(
+            accountDetails.walletID,
+            accountDetails.chainId,
+            tx.bundlerID || 'ALCHEMY',
+            tx.paymasterID || 'ALCHEMY',
+            accountDetails
+        );
+
+        let paymasterData = {};
+        if (tx.paymasterID === "ALCHEMY") {
+            const userOp: any = await client.prepareUserOperation({
+                calls: [{
+                    to: zeroAddress,
+                    value: parseEther('0'),
+                }],
+                ...factory,
+                ...gasPrice
+            });
+            const pmStart = Date.now();
+            paymasterData = await getPaymaster(tx.paymasterID, userOp, getEntryPointAddress(accountDetails.walletID), tx.chainId);
+            metrics.trackPaymasterCall(Date.now() - pmStart);
+        }
+
+        const isDeployment = !accountDetails.isDeployed && tx.to === zeroAddress;
+        
+        // Nonce and endpoint tracking
+        const signerAddress = (await getCentralAccount()).address;
+        const nextNonce = await getNextNonce(signerAddress, tx.chainId);
+        tx.rpcEndpoint = getRPC_URL(tx.chainId, tx.bundlerID);
+
+        let hash: Hex;
+        const bundlerStart = Date.now();
+        if (isDeployment) {
+            hash = await client.sendUserOperation({
+                calls: [{
+                    to: zeroAddress,
+                    value: parseEther('0'),
+                }],
+                ...paymasterData,
+                ...factory,
+                ...gasPrice
+            });
+        } else if (tx.calls && tx.calls.length > 0) {
+            hash = await client.sendUserOperation({
+                calls: tx.calls.map(c => ({
+                    to: getAddress(c.to),
+                    data: c.data as Hex || '0x',
+                    value: parseEther(c.value || '0')
+                })),
+                ...paymasterData,
+                ...gasPrice
+            });
+        } else {
+            hash = await client.sendUserOperation({
+                calls: [{
+                    to: getAddress(tx.to!),
+                    data: tx.data as Hex || '0x',
+                    value: parseEther(tx.value || '0')
+                }],
+                ...paymasterData,
+                ...gasPrice
+            });
+        }
+        metrics.trackBundlerCall(Date.now() - bundlerStart);
+
+        const submittedAt = new Date();
+        tx.userOpHash = hash;
+        tx.status = 'submitted';
+        tx.submittedAt = submittedAt;
+        await tx.save();
+
+        const confStart = Date.now();
+        const receipt = await client.waitForUserOperationReceipt({ hash });
+        metrics.trackConfirmation(Date.now() - confStart);
+        const confirmedAt = new Date();
+        tx.confirmedAt = confirmedAt;
+
+        if (receipt && receipt.success) {
+            tx.status = 'confirmed';
+            tx.hash = receipt.receipt.transactionHash;
+            tx.gasUsed = receipt.actualGasUsed?.toString();
+            
+            if (isDeployment) {
+                await updateAccount(accountDetails.id, {
+                    isDeployed: true,
+                    isActive: true
+                });
+                notificationService.sendNotification(tx.userId, "deployment.complete", {
+                    transactionId: tx.id,
+                    accountId: tx.accountId,
+                    hash: tx.hash
+                });
+            } else {
+                notificationService.sendNotification(tx.userId, "transaction.confirmed", {
+                    transactionId: tx.id,
+                    accountId: tx.accountId,
+                    hash: tx.hash
+                });
+            }
+        } else {
+            tx.status = 'failed';
+            tx.failureReason = 'UserOperation reverted on-chain';
+            notificationService.sendNotification(tx.userId, "transaction.failed", {
+                transactionId: tx.id,
+                accountId: tx.accountId,
+                error: tx.failureReason
+            });
+        }
+        
+        tx.completedAt = new Date();
+        tx.executionDuration = tx.completedAt.getTime() - tx.startedAt.getTime();
+        tx.queueDuration = tx.startedAt.getTime() - tx.queuedAt!.getTime();
+        tx.blockchainDuration = tx.confirmedAt.getTime() - tx.submittedAt.getTime();
+        await tx.save();
+
+    } catch (error: any) {
+        const errorMsg = error?.message || String(error);
+        const isTransient = checkIfTransient(errorMsg);
+
+        if (isTransient && tx.retryCount < 5) {
+            tx.status = 'retrying';
+            tx.retryCount += 1;
+            tx.failureReason = `Transient failure: ${errorMsg}`;
+            notificationService.sendNotification(tx.userId, "transaction.retry_started", {
+                transactionId: tx.id,
+                retryCount: tx.retryCount,
+                error: tx.failureReason
+            });
+        } else {
+            tx.status = 'failed';
+            tx.failureReason = `Permanent failure: ${errorMsg}`;
+            tx.completedAt = new Date();
+            tx.executionDuration = tx.completedAt.getTime() - tx.startedAt.getTime();
+            notificationService.sendNotification(tx.userId, "transaction.failed", {
+                transactionId: tx.id,
+                accountId: tx.accountId,
+                error: tx.failureReason
+            });
+        }
+        await tx.save();
+        logger.error('Worker transaction execution failed', error);
     }
 }

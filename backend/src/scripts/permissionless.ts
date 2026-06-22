@@ -7,8 +7,6 @@ import {
     toTrustSmartAccount
 } from "permissionless/accounts"
 import {
-    createBundlerClient,
-    createPaymasterClient,
     entryPoint06Address,
     entryPoint07Address,
     SmartAccount
@@ -114,22 +112,4 @@ export async function getAccount(walletID: string, accountDetails: IAccount): Pr
         })
 
     throw new Error(String("NOT SUPPORTED WALLET ID"));
-}
-
-export async function paymasterClient(paymasterID: string, chainId: number) {
-    const paymasterRPC = getRPC_URL(chainId, paymasterID);
-    logger.info("Paymaster RPC", paymasterRPC)
-
-    return createPaymasterClient({
-        transport: http(paymasterRPC),
-    })
-}
-
-export async function bundlerClient(walletID: string, chainId: number, bundlerID: string, paymasterID: string, accConfig: IAccount) {
-    const account = await getAccount(walletID, accConfig);
-    return createBundlerClient({
-        account,
-        paymaster: paymasterID === "ALCHEMY" ? undefined : await paymasterClient(paymasterID, chainId),
-        transport: http(getRPC_URL(chainId, bundlerID))
-    })
 }

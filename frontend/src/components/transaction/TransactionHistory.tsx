@@ -1,12 +1,12 @@
 // frontend/src/components/transaction/TransactionHistory.tsx
 import React from 'react';
 import {formatEther} from 'viem';
-import {useTransactionHistory} from '../../hooks/useTransactionHistory';
+import {useTransactionHistoryBackend} from '../../hooks/useTransactionHistoryBackend';
 import {Card} from '../ui/Card';
 import {Button} from '../ui/Button';
 
 export const TransactionHistory: React.FC = () => {
-    const {transactions, isLoading, refreshHistory} = useTransactionHistory();
+    const {transactions, isLoading, fetchTransactionHistory: refreshHistory} = useTransactionHistoryBackend();
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -38,7 +38,7 @@ export const TransactionHistory: React.FC = () => {
         <Card className="p-6">
             <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-white">Transaction History</h2>
-                <Button onClick={refreshHistory} variant="outline" size="sm" loading={isLoading}>
+                <Button onClick={() => refreshHistory()} variant="outline" size="sm" loading={isLoading}>
                     Refresh
                 </Button>
             </div>
@@ -70,7 +70,7 @@ export const TransactionHistory: React.FC = () => {
                                 <div>
                                     <span className="text-slate-400">To: </span>
                                     <span className="text-slate-300 font-mono">
-                    {tx.target.slice(0, 6)}...{tx.target.slice(-4)}
+                    {tx.to ? `${tx.to.slice(0, 6)}...${tx.to.slice(-4)}` : 'N/A'}
                   </span>
                                 </div>
 

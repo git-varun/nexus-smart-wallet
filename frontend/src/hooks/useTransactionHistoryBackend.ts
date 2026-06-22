@@ -5,15 +5,22 @@ import {useToast} from './useToast';
 import {useBackendSmartAccount} from './useBackendSmartAccount';
 
 interface TransactionHistoryItem {
-    hash: string;
+    id?: string;
+    hash?: string;
     userOpHash?: string;
     to: Address;
     value: string;
     data?: string;
-    status: 'pending' | 'success' | 'failed';
+    status: 'pending' | 'success' | 'failed' | 'queued' | 'processing' | 'submitted' | 'retrying' | 'cancelled';
     timestamp: number;
     receipt?: any;
+    failureReason?: string;
+    gasUsed?: string;
 }
+
+const isIncompleteStatus = (status: string): boolean => {
+    return ['queued', 'processing', 'submitted', 'retrying', 'pending'].includes(status);
+};
 
 export function useTransactionHistoryBackend() {
     const [transactions, setTransactions] = useState<TransactionHistoryItem[]>([]);
@@ -98,26 +105,30 @@ export function useTransactionHistoryBackend() {
             const response = await apiClient.sendTransaction(token, to, data, value, providers);
 
             if (response.success && response.data) {
+                const txData = response.data.transaction;
                 // Add transaction to local history
                 const newTransaction: TransactionHistoryItem = {
-                    hash: response.data.transaction.hash,
-                    userOpHash: response.data.transaction.userOpHash,
+                    id: txData.id,
+                    hash: txData.hash,
+                    userOpHash: txData.userOpHash,
                     to,
                     value: value?.toString() || '0',
                     data,
-                    status: response.data.transaction.status === 'confirmed' ? 'success' : 'pending',
+                    status: txData.status === 'confirmed' ? 'success' : txData.status as any,
                     timestamp: Date.now(),
+                    failureReason: txData.failureReason
                 };
 
                 setTransactions(prev => [newTransaction, ...prev]);
 
+                const identifier = txData.hash ? `hash: ${txData.hash.slice(0, 10)}...` : `ID: ${txData.id.slice(0, 8)}...`;
                 toast({
                     title: 'Transaction Sent',
-                    description: `Transaction hash: ${response.data.transaction.hash.slice(0, 10)}...`,
+                    description: `Transaction status is: ${txData.status} (${identifier})`,
                     variant: 'success'
                 });
 
-                return response.data.transaction;
+                return txData;
             } else {
                 throw new Error(response.error?.message || 'Transaction failed');
             }
@@ -138,24 +149,30 @@ export function useTransactionHistoryBackend() {
     }, [toast]);
 
     // Check transaction status
-    const checkTransactionStatus = useCallback(async (hash: string) => {
+    const checkTransactionStatus = useCallback(async (idOrHash: string) => {
         try {
-            const response = await apiClient.getTransactionByHash(hash);
+            if (!token) return null;
+            const response = await apiClient.getTransactionByHash(token, idOrHash);
 
             if (response.success && response.data) {
+                const updatedTx = response.data.transaction;
                 // Update transaction status in local history
                 setTransactions(prev =>
                     prev.map(tx =>
-                        tx.hash === hash
+                        (tx.id === idOrHash || tx.hash === idOrHash)
                             ? {
                                 ...tx,
-                                status: response.data!.transaction.status === 'confirmed' ? 'success' : response.data!.transaction.status as 'pending' | 'failed'
+                                hash: updatedTx.hash || tx.hash,
+                                userOpHash: updatedTx.userOpHash || tx.userOpHash,
+                                status: updatedTx.status === 'confirmed' ? 'success' : updatedTx.status as any,
+                                receipt: updatedTx.gasUsed ? { gasUsed: updatedTx.gasUsed } : undefined,
+                                failureReason: updatedTx.failureReason
                             }
                             : tx
                     )
                 );
 
-                return response.data.transaction;
+                return updatedTx;
             } else {
                 console.warn('Failed to check transaction status:', response.error?.message);
                 return null;
@@ -164,14 +181,17 @@ export function useTransactionHistoryBackend() {
             console.error('Error checking transaction status:', err);
             return null;
         }
-    }, []);
+    }, [token]);
 
     // Refresh all pending transactions
     const refreshPendingTransactions = useCallback(async () => {
-        const pendingTxs = transactionsRef.current.filter(tx => tx.status === 'pending');
+        const pendingTxs = transactionsRef.current.filter(tx => isIncompleteStatus(tx.status));
 
         for (const tx of pendingTxs) {
-            await checkTransactionStatus(tx.hash);
+            const idOrHash = tx.id || tx.hash;
+            if (idOrHash) {
+                await checkTransactionStatus(idOrHash);
+            }
         }
     }, [checkTransactionStatus]);
 
@@ -185,27 +205,53 @@ export function useTransactionHistoryBackend() {
         return null;
     }, [toast]);
 
-    // Fetch transaction history from backend
     const fetchTransactionHistory = useCallback(async (
-        token: string,
-        chainId?: number,
-        limit?: number
+        authToken?: string,
+        paramsOrChainId?: number | {
+            chainId?: number;
+            limit?: number;
+            page?: number;
+            status?: string;
+            search?: string;
+            to?: string;
+            paymasterID?: string;
+            bundlerID?: string;
+            sortBy?: string;
+            sortOrder?: 'asc' | 'desc';
+        },
+        limitArg?: number
     ) => {
         try {
             setIsLoading(true);
             setError(null);
 
-            const response = await apiClient.getTransactionHistory(token, chainId, limit);
+            const activeToken = authToken || token;
+            if (!activeToken) {
+                throw new Error('Authentication token not available');
+            }
+
+            let fetchParams: any = {};
+            if (typeof paramsOrChainId === 'object' && paramsOrChainId !== null) {
+                fetchParams = paramsOrChainId;
+            } else {
+                if (paramsOrChainId !== undefined) fetchParams.chainId = paramsOrChainId;
+                if (limitArg !== undefined) fetchParams.limit = limitArg;
+            }
+
+            const response = await apiClient.getTransactionHistory(activeToken, fetchParams);
 
             if (response.success && response.data) {
                 const backendTransactions: TransactionHistoryItem[] = response.data.transactions.map((tx: TransactionHistory) => ({
+                    id: tx.id,
                     hash: tx.hash,
                     userOpHash: tx.userOpHash,
                     to: tx.to,
                     value: tx.value,
                     data: tx.data,
-                    status: tx.status === 'confirmed' ? 'success' : tx.status,
+                    status: tx.status === 'confirmed' ? 'success' : tx.status as any,
                     timestamp: new Date(tx.createdAt).getTime(),
+                    failureReason: tx.failureReason,
+                    gasUsed: tx.gasUsed
                 }));
 
                 setTransactions(backendTransactions);
@@ -231,18 +277,18 @@ export function useTransactionHistoryBackend() {
     }, []);
 
     // Get transaction by hash
-    const getTransaction = useCallback((hash: string) => {
-        return transactions.find(tx => tx.hash === hash);
+    const getTransaction = useCallback((idOrHash: string) => {
+        return transactions.find(tx => tx.id === idOrHash || tx.hash === idOrHash);
     }, [transactions]);
 
     // Get transactions by status
-    const getTransactionsByStatus = useCallback((status: 'pending' | 'success' | 'failed') => {
+    const getTransactionsByStatus = useCallback((status: 'pending' | 'success' | 'failed' | 'queued' | 'processing' | 'submitted' | 'retrying') => {
         return transactions.filter(tx => tx.status === status);
     }, [transactions]);
 
     // Memoize pending transactions count to avoid unnecessary effect runs
     const pendingTransactionsCount = useMemo(() => {
-        return transactions.filter(tx => tx.status === 'pending').length;
+        return transactions.filter(tx => isIncompleteStatus(tx.status)).length;
     }, [transactions]);
 
     // Auto-refresh pending transactions periodically
@@ -250,7 +296,7 @@ export function useTransactionHistoryBackend() {
         if (pendingTransactionsCount > 0) {
             const interval = setInterval(() => {
                 refreshPendingTransactions();
-            }, 10000); // Check every 10 seconds
+            }, 5000); // Check every 5 seconds for faster updates in development/prod async execution
 
             return () => clearInterval(interval);
         }
@@ -278,11 +324,11 @@ export function useTransactionHistoryBackend() {
         getTransactionsByStatus,
 
         // Computed values (memoized)
-        pendingTransactions: useMemo(() => transactions.filter(tx => tx.status === 'pending'), [transactions]),
+        pendingTransactions: useMemo(() => transactions.filter(tx => isIncompleteStatus(tx.status)), [transactions]),
         successfulTransactions: useMemo(() => transactions.filter(tx => tx.status === 'success'), [transactions]),
         failedTransactions: useMemo(() => transactions.filter(tx => tx.status === 'failed'), [transactions]),
         totalTransactions: transactions.length,
         hasFailedTransactions: useMemo(() => transactions.some(tx => tx.status === 'failed'), [transactions]),
-        hasPendingTransactions: useMemo(() => transactions.some(tx => tx.status === 'pending'), [transactions]),
+        hasPendingTransactions: useMemo(() => transactions.some(tx => isIncompleteStatus(tx.status)), [transactions]),
     };
 }

@@ -1,10 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import {validateConfig} from './config/config';
-import {errorHandlerMiddleware} from './middleware/errorHandler.middleware';
+import {config, validateConfig} from './config/config';
+import {errorHandlerMiddleware, requestIdMiddleware} from './middleware';
 import {routes} from './routes';
-import {createServiceLogger} from './utils';
+import {createServiceLogger, metrics, logger as globalLogger} from './utils';
 
 const logger = createServiceLogger('App');
 
@@ -18,12 +18,27 @@ async function createApp() {
     // Basic security headers
     app.use(helmet({
         crossOriginEmbedderPolicy: false,
-        contentSecurityPolicy: false // Simplified for POC
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'", "'unsafe-inline'"],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                imgSrc: ["'self'", "data:", "blob:"],
+                connectSrc: ["'self'", "https://*.alchemy.com", "https://*.pimlico.io", "https://sepolia.base.org"]
+            }
+        }
     }));
 
-    // CORS - Allow all origins for POC
+    // CORS - Restricted to configured origins in production
     app.use(cors({
-        origin: true,
+        origin: (origin, callback) => {
+            if (!origin) return callback(null, true);
+            if (config.corsOrigins.includes(origin) || config.corsOrigins.includes('*')) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
     }));
@@ -32,24 +47,32 @@ async function createApp() {
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
 
+    // Generate RequestId tracing and bind AsyncLocalStorage context globally
+    app.use(requestIdMiddleware);
 
-    // Somewhere at the start of your server setup (e.g., in app.ts or server.ts)
-
-// NOTE: This modifies the global BigInt prototype, which is generally acceptable
-// for server-side code that deals heavily with BigInts.
+    // BigInt JSON stringification compatibility
     (BigInt.prototype as any).toJSON = function () {
-        // Convert BigInts to a string representation for JSON.stringify
         return this.toString();
     };
-    // Simple request logging
+
+    // Structured JSON request logger & metrics middleware
     app.use((req, res, next) => {
-        logger.info(`${req.method} ${req.path}`);
+        const start = Date.now();
+        metrics.activeRequests += 1;
+        
+        res.on('finish', () => {
+            metrics.activeRequests -= 1;
+            const duration = Date.now() - start;
+            metrics.trackApiRequest(res.statusCode, duration);
+            globalLogger.apiRequest('API', req.method, req.path, res.statusCode, duration);
+        });
+        
         next();
     });
 
-    // Health check endpoint
+    // Redirect root health requests to official endpoint
     app.get('/health', (req, res) => {
-        res.json({status: 'ok', timestamp: new Date().toISOString()});
+        res.redirect('/api/health');
     });
 
     // API routes

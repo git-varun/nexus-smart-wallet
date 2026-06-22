@@ -1,7 +1,8 @@
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {motion} from 'framer-motion';
 import {cn} from '@/utils/cn.ts';
-import {type ChainConfig, getChainById, getMainnetChains, getPopularChains, SUPPORTED_CHAINS} from '@/config/chains.ts';
+import {type ChainConfig, getChainById, SUPPORTED_CHAINS} from '@/config/chains.ts';
+import {useCapabilities} from '@/hooks/useCapabilities';
 
 interface ChainSelectorProps {
     selectedChainId: number;
@@ -25,19 +26,30 @@ export const ChainSelector: React.FC<ChainSelectorProps> = ({
     const [isOpen, setIsOpen] = useState(false);
     const [showTestnetToggle, setShowTestnetToggle] = useState(showTestnets);
 
+    const { capabilities } = useCapabilities();
     const selectedChain = getChainById(selectedChainId);
 
-    // Get filtered chains based on props
+    const supportedChainIds = useMemo(() => {
+        if (!capabilities) return [84532]; // Default fallback (Base Sepolia)
+        return capabilities.supportedChains.map(c => c.id);
+    }, [capabilities]);
+
+    // Get filtered chains based on props and capabilities
     const getAvailableChains = (): ChainConfig[] => {
+        let chains = Object.values(SUPPORTED_CHAINS);
+
+        // Filter by backend capabilities
+        chains = chains.filter(chain => supportedChainIds.includes(chain.chainId));
+
         if (popularOnly) {
-            return getPopularChains().filter(chain => showTestnetToggle || !chain.testnet);
+            chains = chains.filter(chain => chain.popular);
         }
 
-        if (showTestnetToggle) {
-            return Object.values(SUPPORTED_CHAINS);
+        if (!showTestnetToggle) {
+            chains = chains.filter(chain => !chain.testnet);
         }
 
-        return getMainnetChains();
+        return chains;
     };
 
     const availableChains = getAvailableChains();

@@ -22,6 +22,13 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
         email: tokenResult.user.email || ''
     };
 
+    // Update log context with user ID
+    const { logContextStorage } = require('../utils/logger');
+    const store = logContextStorage.getStore();
+    if (store) {
+        store.userId = tokenResult.user.id;
+    }
+
     next();
 }
 

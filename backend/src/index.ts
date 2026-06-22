@@ -2,6 +2,7 @@ import createApp from './app';
 import {config} from './config/config';
 import {createServiceLogger} from './utils';
 import {closeDatabase, initializeDatabase} from './database';
+import {startWorker, stopWorker} from './services/worker.service';
 
 const logger = createServiceLogger('Server');
 
@@ -15,11 +16,14 @@ async function startServer() {
         // Create and start app
         const app = await createApp();
 
-        const server = app.listen(PORT, () => {
+        const server = app.listen(PORT, async () => {
             logger.info(`🚀 Server running on port ${PORT}`);
             logger.info(`🔗 API: http://localhost:${PORT}`);
             logger.info(`🏥 Health: http://localhost:${PORT}/health`);
             logger.info(`📖 Docs: http://localhost:${PORT}/`);
+            
+            // Start queue worker
+            await startWorker();
         });
 
         // Graceful shutdown
@@ -28,6 +32,7 @@ async function startServer() {
 
             server.close(async () => {
                 try {
+                    await stopWorker();
                     await closeDatabase();
                     logger.info('✅ Server stopped');
                     process.exit(0);

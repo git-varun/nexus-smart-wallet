@@ -4,6 +4,7 @@ import {Card} from './Card';
 import {Button} from './Button';
 import {cn} from '../../utils/cn';
 import {BUNDLER_PROVIDERS, getBundlerById} from '../../config/bundlers';
+import {useCapabilities} from '../../hooks/useCapabilities';
 
 interface BundlerSelectorProps {
     selectedBundler: string;
@@ -25,11 +26,20 @@ export const BundlerSelector: React.FC<BundlerSelectorProps> = ({
     const [reliabilityFilter, setReliabilityFilter] = useState<ReliabilityFilter>('all');
     const [expandedBundler, setExpandedBundler] = useState<string | null>(null);
 
+    const { capabilities } = useCapabilities();
     const selectedBundlerConfig = getBundlerById(selectedBundler);
+
+    const supportedBundlersList = useMemo(() => {
+        if (!capabilities) return ['alchemy']; // Default fallback
+        return capabilities.supportedBundlers.map(b => b.toLowerCase());
+    }, [capabilities]);
 
     // Filter bundlers based on selected filters and chain compatibility
     const filteredBundlers = useMemo(() => {
         let bundlers = Object.values(BUNDLER_PROVIDERS);
+
+        // Filter by capabilities
+        bundlers = bundlers.filter(bundler => supportedBundlersList.includes(bundler.id.toLowerCase()));
 
         // Filter by chain compatibility
         if (selectedChainId) {
@@ -53,7 +63,7 @@ export const BundlerSelector: React.FC<BundlerSelectorProps> = ({
             }
             return a.displayName.localeCompare(b.displayName);
         });
-    }, [selectedChainId, reliabilityFilter]);
+    }, [selectedChainId, reliabilityFilter, supportedBundlersList]);
 
     const handleBundlerSelect = (bundlerId: string) => {
         onBundlerSelect(bundlerId);

@@ -1,7 +1,30 @@
 // UserOperationStatus.tsx - Component to show detailed UserOperation lifecycle
 import React from 'react';
 import {Card} from '../ui/Card';
-import {UserOperationLifecycle, UserOperationStage} from '../../types/userOperation';
+export type UserOperationStageStatus = 'idle' | 'in_progress' | 'completed' | 'failed';
+
+export interface UserOperationStage {
+    id: string;
+    title: string;
+    description?: string;
+    status: UserOperationStageStatus;
+    timestamp?: number;
+    details?: string;
+    txHash?: string;
+    gasUsed?: string;
+}
+
+export interface UserOperationLifecycle {
+    userOpHash?: string;
+    overallStatus: 'idle' | 'pending' | 'submitting' | 'success' | 'failed';
+    stages: UserOperationStage[];
+    error?: string;
+    createdAt?: number;
+    finalTxHash?: string;
+    finalBlockNumber?: number;
+    estimatedGas?: string;
+    actualGasUsed?: string;
+}
 
 interface UserOperationStatusProps {
     lifecycle: UserOperationLifecycle;
@@ -52,6 +75,7 @@ export const UserOperationStatus: React.FC<UserOperationStatusProps> = ({lifecyc
     };
 
     const getElapsedTime = () => {
+        if (!lifecycle.createdAt) return '0s';
         const elapsed = Date.now() - lifecycle.createdAt;
         const seconds = Math.floor(elapsed / 1000);
         const minutes = Math.floor(seconds / 60);
@@ -121,7 +145,7 @@ export const UserOperationStatus: React.FC<UserOperationStatusProps> = ({lifecyc
             <div className="space-y-4">
                 <h4 className="text-sm font-medium text-slate-300 mb-3">ERC-4337 Flow Progress</h4>
 
-                {lifecycle.stages.map((stage, index) => (
+                {lifecycle.stages.map((stage: UserOperationStage, index: number) => (
                     <div key={stage.id} className="flex items-start space-x-3">
                         {/* Stage Icon */}
                         <div className="flex-shrink-0 mt-1">

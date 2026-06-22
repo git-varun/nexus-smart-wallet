@@ -4,9 +4,11 @@ import {AuthenticationPage} from '@/components/auth';
 import {Dashboard} from '../dashboard/Dashboard';
 import {NetworkStatus} from '../NetworkStatus';
 import {useBackendSmartAccount} from '@/hooks/useBackendSmartAccount.ts';
+import {useNotifications} from '@/hooks/useNotifications';
 
 export const MainLayout: React.FC = () => {
     const {isAuthenticated, loading, loginWithCredentials} = useBackendSmartAccount();
+    useNotifications();
 
     const handleAuthSuccess = async (userData: { user: any; token: string }) => {
         try {

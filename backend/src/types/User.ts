@@ -80,5 +80,5 @@ export interface UsernameAvailabilityCheck {
 }
 
 export interface UserDocument extends Omit<User, 'id'>, Document {
-    _id: string;
+    _id: any;
 }

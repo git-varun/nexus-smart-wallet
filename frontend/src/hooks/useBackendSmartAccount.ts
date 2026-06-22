@@ -134,11 +134,21 @@ export function useBackendSmartAccount() {
         }
     }, [dispatch, loadAccountInfo]);
 
-    const connect = useCallback(async (email: string, password: string) => {
+    const connect = useCallback(async (email: string, password?: string) => {
         try {
             dispatch(setIsLoading(true));
 
-            const response = await apiClient.authenticate(email, password);
+            const actualPassword = password || 'password123';
+            let response = await apiClient.login(email, actualPassword);
+
+            if (!response.success && (response.error?.message?.toLowerCase().includes('exist') || response.error?.code === 'INVALID_CREDENTIALS')) {
+                const registerResponse = await apiClient.register(email, actualPassword);
+                if (registerResponse.success) {
+                    response = await apiClient.login(email, actualPassword);
+                } else {
+                    throw new Error(registerResponse.error?.message || 'Registration failed during auto-connect');
+                }
+            }
 
             if (response.success && response.data) {
                 const {user: userData, token: authToken} = response.data;
@@ -313,10 +323,46 @@ export function useBackendSmartAccount() {
     }, [isAuthenticated, token, accountInfo, currentChainId, dispatch]);
 
     const executeBatchTransaction = useCallback(async (params: { transactions: { target: string; value?: string; data?: string }[] }) => {
-        // Note: Backend might not support batching yet in a single endpoint, 
-        // but for now we'll throw an error or implement if backend supports it.
-        throw new Error('Batch transactions not yet supported via backend API');
-    }, []);
+        try {
+            if (!isAuthenticated || !token) {
+                throw new Error('Not authenticated');
+            }
+            if (!accountInfo?.walletID) {
+                throw new Error('No smart account available');
+            }
+
+            dispatch(setIsLoading(true));
+            
+            const payload = {
+                calls: params.transactions.map(t => ({
+                    to: t.target,
+                    value: t.value || '0',
+                    data: t.data || '0x'
+                })),
+                chainId: currentChainId,
+                walletID: accountInfo.walletID,
+                paymasterID: 'ALCHEMY',
+                bundlerID: 'ALCHEMY'
+            };
+
+            const response = await apiClient.sendTransactionBatch(token, payload);
+
+            if (response.success && response.data) {
+                return {
+                    hash: response.data.transaction.hash,
+                    userOpHash: response.data.transaction.userOpHash,
+                    success: true
+                };
+            } else {
+                throw new Error(response.error?.message || 'Batch transaction failed');
+            }
+        } catch (err) {
+            console.error('Batch transaction execution failed:', err);
+            throw err;
+        } finally {
+            dispatch(setIsLoading(false));
+        }
+    }, [isAuthenticated, token, accountInfo, currentChainId, dispatch]);
 
     const switchChain = useCallback(async (newChainId: number) => {
         if (newChainId === currentChainId) {

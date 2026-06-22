@@ -21,5 +21,5 @@ export interface SmartAccount {
 }
 
 export interface SmartAccountDocument extends Omit<SmartAccount, 'id'>, Document {
-    _id: string;
+    _id: any;
 }

@@ -195,7 +195,7 @@ export const UserProfile: React.FC = () => {
                         userId={user?.id}
                         username={formData.username}
                         email={user?.email}
-                        profileImageUrl={user?.profileImageUrl}
+                        profileImageUrl={user?.profileImage}
                         size="xl"
                         animated={true}
                     />
@@ -345,7 +345,7 @@ export const UserProfile: React.FC = () => {
                         <label className="text-sm font-medium text-foreground block mb-3">Language</label>
                         <select
                             value={preferences.language}
-                            onChange={(e) => setPreferences(prev => ({...prev, language: e.target.value}))}
+                            onChange={(e) => setPreferences(prev => ({...prev, language: e.target.value as any}))}
                             className="w-full p-3 bg-card border border-border rounded-lg text-foreground focus:border-web3-primary focus:outline-none"
                         >
                             {Object.entries(SUPPORTED_LANGUAGES).map(([code, name]) => (

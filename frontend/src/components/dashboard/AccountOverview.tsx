@@ -35,8 +35,8 @@ export const AccountOverview: React.FC = () => {
                 const totalAccounts = userAccounts.length;
 
                 // Get transaction history for current chain
-                const txResponse = await apiClient.getTransactionHistory(token, currentChainId);
-                const totalTransactions = txResponse.success ? txResponse.data?.count || 0 : 0;
+                const txResponse = await apiClient.getTransactionHistory(token, { chainId: currentChainId });
+                const totalTransactions = txResponse.success ? txResponse.data?.pagination?.totalCount || 0 : 0;
 
                 // Calculate total balance (for now just use current account balance)
                 const totalBalance = accountInfo?.balance || '0';

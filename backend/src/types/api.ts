@@ -70,6 +70,7 @@ export interface TransactionRequest {
     data?: Hex;
     value?: string | bigint;
     version?: AAVersion; // Optional AA version preference
+    idempotencyKey?: string;
 }
 
 export interface TransactionInfo {

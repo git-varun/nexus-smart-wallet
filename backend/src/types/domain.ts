@@ -68,13 +68,13 @@ export interface UpdateSmartAccountInput {
 }
 
 // Transaction types
-export type TransactionStatus = 'pending' | 'confirmed' | 'failed';
+export type TransactionStatus = 'pending' | 'queued' | 'processing' | 'submitted' | 'confirmed' | 'failed' | 'retrying' | 'cancelled';
 
 export interface Transaction {
     id: string;
     userId: string;
     smartAccountId: string;
-    hash: string;
+    hash?: string;
     userOpHash?: string;
     to: string;
     value?: string;
@@ -96,7 +96,7 @@ export interface Transaction {
 export interface CreateTransactionInput {
     userId: string;
     smartAccountId: string;
-    hash: string;
+    hash?: string;
     userOpHash?: string;
     to: string;
     value?: string;

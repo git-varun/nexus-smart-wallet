@@ -48,9 +48,9 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         }
     };
 
-    const handleRetryTransaction = async (hash: string) => {
+    const handleRetryTransaction = async (idOrHash: string) => {
         try {
-            await retryTransaction(hash);
+            await retryTransaction(idOrHash);
         } catch (error) {
             console.error('Failed to retry transaction:', error);
         }
@@ -63,6 +63,15 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 return 'bg-green-100 text-green-800';
             case 'failed':
                 return 'bg-red-100 text-red-800';
+            case 'processing':
+                return 'bg-blue-100 text-blue-800 animate-pulse';
+            case 'submitted':
+                return 'bg-indigo-100 text-indigo-800 animate-pulse';
+            case 'queued':
+            case 'retrying':
+                return 'bg-orange-100 text-orange-800';
+            case 'cancelled':
+                return 'bg-gray-100 text-gray-800';
             case 'pending':
             default:
                 return 'bg-yellow-100 text-yellow-800';
@@ -82,6 +91,32 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 return (
                     <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="6 18L18 6M6 6l12 12"/>
+                    </svg>
+                );
+            case 'processing':
+                return (
+                    <svg className="w-4 h-4 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                );
+            case 'submitted':
+                return (
+                    <svg className="w-4 h-4 text-indigo-600 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    </svg>
+                );
+            case 'queued':
+            case 'retrying':
+                return (
+                    <svg className="w-4 h-4 text-orange-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                    </svg>
+                );
+            case 'cancelled':
+                return (
+                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
                     </svg>
                 );
             case 'pending':
@@ -199,7 +234,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                     <div className="space-y-4">
                         {displayedTransactions.map((tx, index) => (
                             <motion.div
-                                key={tx.hash}
+                                key={tx.id || tx.hash || index.toString()}
                                 initial={{opacity: 0, y: 10}}
                                 animate={{opacity: 1, y: 0}}
                                 transition={{delay: index * 0.05}}
@@ -216,8 +251,8 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                                                     {tx.status.toUpperCase()}
                                                 </span>
                                             </div>
-                                            <div className="font-mono text-xs bg-white px-2 py-1 rounded border">
-                                                {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
+                                            <div className="font-mono text-xs bg-white px-2 py-1 rounded border text-muted-foreground">
+                                                {tx.hash ? `${tx.hash.slice(0, 10)}...${tx.hash.slice(-8)}` : (tx.id ? `ID: ${tx.id.slice(0, 8)}` : 'Enqueued')}
                                             </div>
                                         </div>
 
@@ -252,8 +287,15 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                                                 </span>
                                             </div>
                                         )}
-                                    </div>
 
+                                        {/* Failure Reason if failed */}
+                                        {tx.status === 'failed' && tx.failureReason && (
+                                            <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded border border-red-100">
+                                                <span className="font-semibold">Reason:</span> {tx.failureReason}
+                                            </div>
+                                        )}
+                                    </div>
+ 
                                     {/* Action Buttons */}
                                     <div className="flex flex-col gap-2 ml-4">
                                         {tx.hash && (
@@ -270,7 +312,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() => handleRetryTransaction(tx.hash)}
+                                                onClick={() => handleRetryTransaction(tx.id || tx.hash || '')}
                                                 disabled={isLoading}
                                                 className="text-xs"
                                             >

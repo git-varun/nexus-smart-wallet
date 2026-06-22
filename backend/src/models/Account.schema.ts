@@ -68,10 +68,15 @@ const accountSchema = new Schema<IAccount>({
     timestamps: {createdAt: 'createdAt', updatedAt: 'updatedAt'}
 });
 
+// Database indexes for query optimization
+accountSchema.index({ address: 1 });
+accountSchema.index({ userId: 1, chainId: 1 });
+accountSchema.index({ address: 1, chainId: 1 }, { unique: true });
+
 accountSchema.set('toJSON', {
     transform: function (_doc, ret) {
         ret.id = ret._id?.toString();
-        delete ret._id;
+        delete (ret as any)._id;
         delete (ret as any).__v;
         return ret;
     }

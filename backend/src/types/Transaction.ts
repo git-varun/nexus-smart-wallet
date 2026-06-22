@@ -1,13 +1,13 @@
 // Transaction domain types
 import {Document} from "mongoose";
 
-export type TransactionStatus = 'pending' | 'confirmed' | 'failed';
+export type TransactionStatus = 'pending' | 'queued' | 'processing' | 'submitted' | 'confirmed' | 'failed' | 'retrying' | 'cancelled';
 
 export interface Transaction {
     id: string;
     userId: string;
     smartAccountId: string;
-    hash: string;
+    hash?: string;
     userOpHash?: string;
     to: string;
     value?: string;
@@ -20,12 +20,12 @@ export interface Transaction {
 
 export interface TransactionInfo {
     id: string;
-    hash: string;
+    hash?: string;
     userOpHash?: string;
     to: string;
     value?: string;
     data?: string;
-    status: 'pending' | 'confirmed' | 'failed';
+    status: TransactionStatus;
     gasUsed?: string;
     createdAt: Date;
     updatedAt: Date;
@@ -38,5 +38,5 @@ export interface TransactionResult {
 }
 
 export interface TransactionDocument extends Omit<Transaction, 'id'>, Document {
-    _id: string;
+    _id: any;
 }

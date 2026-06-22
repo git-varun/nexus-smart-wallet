@@ -51,7 +51,7 @@ export const WalletDashboard: React.FC = () => {
     } = useTransactionHistoryBackend();
 
     // MetaMask transactions temporarily disabled
-    const sendMetaMaskTransaction = async () => {
+    const sendMetaMaskTransaction = async (to: string, value: string, data: string): Promise<{ hash: string; success: boolean }> => {
         throw new Error('MetaMask transactions not available');
     };
     const metaMaskTxLoading = false;
@@ -79,7 +79,7 @@ export const WalletDashboard: React.FC = () => {
 
         try {
             const value = txValue ? parseEther(txValue) : BigInt(0);
-            await estimateGas(txTo as Address, txData || '0x', value, 'alchemy');
+            await estimateGas(txTo as Address, txData || '0x', value);
         } catch (err) {
             console.error('Gas estimation failed:', err);
         }
@@ -127,7 +127,8 @@ export const WalletDashboard: React.FC = () => {
         }
     };
 
-    const handleRetryTransaction = async (transactionId: string) => {
+    const handleRetryTransaction = async (transactionId?: string) => {
+        if (!transactionId) return;
         try {
             const result = await retryTransaction(transactionId);
             if (result) {
@@ -446,13 +447,13 @@ export const WalletDashboard: React.FC = () => {
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {transactions.slice(0, 10).map((tx) => (
-                            <div key={tx.hash} className="p-4 bg-gray-50 rounded-lg border">
+                        {transactions.slice(0, 10).map((tx, index) => (
+                            <div key={tx.hash || tx.id || tx.userOpHash || index} className="p-4 bg-gray-50 rounded-lg border">
                                 <div className="flex justify-between items-start">
                                     <div className="flex-1">
                                         <div className="flex items-center space-x-2 mb-2">
                                             <p className="font-mono text-xs bg-white px-2 py-1 rounded border">
-                                                {tx.hash.slice(0, 16)}...
+                                                {(tx.hash || tx.userOpHash || 'Pending').slice(0, 16)}...
                                             </p>
                                             <p className={`text-xs font-medium px-2 py-1 rounded ${
                                                 tx.status === 'success' ? 'bg-green-100 text-green-800' :

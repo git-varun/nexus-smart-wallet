@@ -151,7 +151,7 @@ const makeGasManagerRequest = async <T>(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
 
-    function bigIntReplacer(key, value) {
+    function bigIntReplacer(key: string, value: any) {
         if (typeof value === 'bigint') {
             // Convert BigInt to a hex string with the '0x' prefix
             return `0x${value.toString(16)}`;
@@ -159,20 +159,16 @@ const makeGasManagerRequest = async <T>(
         return value;
     }
 
-    const request = [baseUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        },
-        body: JSON.stringify(requestBody, bigIntReplacer),
-        signal: controller.signal
-    }
-    ]
-
-
     try {
-        const response = await fetch(request[0], request[1]);
+        const response = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestBody, bigIntReplacer),
+            signal: controller.signal
+        });
 
 
         clearTimeout(timeoutId);

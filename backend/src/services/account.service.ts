@@ -1,8 +1,10 @@
 import {accountRepository} from '../repositories';
+import {updateAccount} from '../repositories/accountRepository';
 import {createServiceLogger} from '../utils';
-import {IAccount} from "../models";
+import {IAccount, AccountModel} from "../models";
 import {SUPPORTED_WALLETS} from "../config/config";
 import {getAccount} from "../scripts/permissionless";
+import {rpcProvider} from "./provider.service";
 
 const logger = createServiceLogger('AccountService');
 
@@ -189,3 +191,30 @@ export async function getAccountDetails(address: string, chainId: number): Promi
         };
     }
 }
+
+export async function reconcileAllAccountsDeploymentStatus(): Promise<void> {
+    try {
+        const undeployedAccounts = await AccountModel.find({ isDeployed: false });
+        if (undeployedAccounts.length === 0) return;
+
+        logger.info(`Starting background deployment reconciliation for ${undeployedAccounts.length} accounts...`);
+        for (const account of undeployedAccounts) {
+            try {
+                const client = rpcProvider.getPublicClient(account.chainId);
+                const bytecode = await client.getBytecode({ address: account.address as `0x${string}` });
+                if (bytecode && bytecode !== '0x') {
+                    logger.info(`Reconciling account ${account.address} deployment status to true (found bytecode on-chain)`);
+                    await updateAccount(account.id, {
+                        isDeployed: true,
+                        isActive: true
+                    });
+                }
+            } catch (err) {
+                logger.error(`Failed to reconcile deployment status for account ${account.address} on chain ${account.chainId}`, err as Error);
+            }
+        }
+    } catch (error) {
+        logger.error('Failed running background accounts deployment reconciliation', error as Error);
+    }
+}
+
