@@ -1,4 +1,4 @@
-import {TransactionModel} from '../models';
+import {TransactionModel, SessionKeyModel} from '../models';
 import mongoose from 'mongoose';
 
 class RollingAverage {
@@ -92,6 +92,11 @@ export class MetricsCollector {
         ]);
         const totalRetries = retryAgg[0]?.totalRetries || 0;
 
+        // Session Key Metrics
+        const totalSessionKeys = await SessionKeyModel.countDocuments({});
+        const activeSessionKeys = await SessionKeyModel.countDocuments({ isActive: true });
+        const revokedSessionKeys = await SessionKeyModel.countDocuments({ isActive: false });
+
         // DB Connection status
         const dbState = mongoose.connection.readyState;
         const dbStatus = dbState === 1 ? 'connected' : dbState === 2 ? 'connecting' : 'disconnected';
@@ -117,6 +122,11 @@ export class MetricsCollector {
                 averageRpcLatencyMs: Math.round(this.rpcLatency.get() * 100) / 100,
                 averagePaymasterLatencyMs: Math.round(this.paymasterLatency.get() * 100) / 100,
                 averageConfirmationLatencyMs: Math.round(this.confirmationLatency.get() * 100) / 100
+            },
+            sessionKeys: {
+                totalCount: totalSessionKeys,
+                activeCount: activeSessionKeys,
+                revokedCount: revokedSessionKeys
             },
             database: {
                 averageQueryLatencyMs: Math.round(this.dbQueryLatency.get() * 100) / 100,

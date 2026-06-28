@@ -1,4 +1,4 @@
-import {ITransaction, TransactionModel, TransactionStatus} from '../models';
+import {ITransaction, TransactionModel} from '../models';
 
 export async function createTransaction(data: Partial<ITransaction>): Promise<ITransaction> {
     const transaction = new TransactionModel(data);

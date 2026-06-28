@@ -1,5 +1,5 @@
-import { Address, formatUnits } from "viem";
-import { PortfolioModel, IPortfolio, IPortfolioAsset } from "../models";
+import { Address } from "viem";
+import { PortfolioModel, IPortfolio, IPortfolioAsset, TokenMetadataModel } from "../models";
 import { rpcProvider } from "./provider.service";
 import { config } from "../config/config";
 import { ALCHEMY_CHAIN_MAP } from "../config/chain";
@@ -128,21 +128,63 @@ export async function syncPortfolio(userId: string, address: string, chainId: nu
                 const json: any = await response.json();
                 if (json?.result?.tokenBalances) {
                     const balances = json.result.tokenBalances;
-                    for (const tb of balances) {
+                    const activeBalances = balances.filter((tb: any) => BigInt(tb.tokenBalance) > 0n);
+                    const tokenAddresses = activeBalances.map((tb: any) => tb.contractAddress.toLowerCase());
+
+                    // Check DB Cache
+                    const cachedTokens = await TokenMetadataModel.find({
+                        chainId,
+                        address: { $in: tokenAddresses }
+                    });
+                    const cacheMap = new Map(cachedTokens.map(t => [t.address.toLowerCase(), t]));
+
+                    // Find missing addresses
+                    const missingAddresses = tokenAddresses.filter((addr: string) => !cacheMap.has(addr));
+
+                    // Fetch missing metadata in parallel
+                    if (missingAddresses.length > 0) {
+                        const metadataPromises = missingAddresses.map(async (tokenAddress: string) => {
+                            const meta = await fetchERC20Metadata(client, tokenAddress as `0x${string}`);
+                            // Save to cache
+                            try {
+                                await TokenMetadataModel.findOneAndUpdate(
+                                    { chainId, address: tokenAddress },
+                                    {
+                                        $set: {
+                                            symbol: meta.symbol,
+                                            name: meta.name,
+                                            decimals: meta.decimals,
+                                            updatedAt: new Date()
+                                        }
+                                    },
+                                    { upsert: true, new: true }
+                                );
+                            } catch (cacheErr) {
+                                logger.error(`Failed caching metadata for token ${tokenAddress}`, cacheErr instanceof Error ? cacheErr : new Error(String(cacheErr)));
+                            }
+                            return { address: tokenAddress, ...meta };
+                        });
+
+                        const fetchedMetadata = await Promise.all(metadataPromises);
+                        fetchedMetadata.forEach(item => {
+                            cacheMap.set(item.address, item as any);
+                        });
+                    }
+
+                    // Assemble asset array
+                    for (const tb of activeBalances) {
                         const tokenAddress = tb.contractAddress.toLowerCase();
                         const rawBalance = BigInt(tb.tokenBalance);
-                        if (rawBalance > 0n) {
-                            // Query metadata
-                            const meta = await fetchERC20Metadata(client, tokenAddress as `0x${string}`);
-                            assets.push({
-                                type: "erc20",
-                                tokenAddress,
-                                symbol: meta.symbol,
-                                name: meta.name,
-                                decimals: meta.decimals,
-                                balance: rawBalance.toString()
-                            });
-                        }
+                        const meta = cacheMap.get(tokenAddress) || { symbol: "UNKNOWN", name: "Unknown Token", decimals: 18 };
+
+                        assets.push({
+                            type: "erc20",
+                            tokenAddress,
+                            symbol: meta.symbol,
+                            name: meta.name,
+                            decimals: meta.decimals,
+                            balance: rawBalance.toString()
+                        });
                     }
                     erc20Fetched = true;
                 }
@@ -172,7 +214,7 @@ export async function syncPortfolio(userId: string, address: string, chainId: nu
                             balance: bal.toString()
                         });
                     }
-                } catch (err) {
+                } catch {
                     // Ignore failures for specific fallback tokens (contract might not exist on custom fork)
                 }
             }

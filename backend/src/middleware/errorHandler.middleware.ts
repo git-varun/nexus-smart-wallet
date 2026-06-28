@@ -18,7 +18,7 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     const requestId = (req as any).requestId || 'unknown';
     const timestamp = new Date().toISOString();
 
-    let statusCode = err.statusCode || 500;
+    const statusCode = err.statusCode || 500;
     let code = err.code || 'INTERNAL_SERVER_ERROR';
     let message = err.message || 'Internal Server Error';
 

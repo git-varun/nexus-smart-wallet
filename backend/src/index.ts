@@ -3,12 +3,17 @@ import {config} from './config/config';
 import {createServiceLogger} from './utils';
 import {closeDatabase, initializeDatabase} from './database';
 import {startWorker, stopWorker} from './services/worker.service';
+import {initializeRedis, closeRedis} from './services/redis.service';
+import {notificationService} from './services/notification.service';
 
 const logger = createServiceLogger('Server');
 
 async function startServer() {
     try {
         const PORT = config.port || 3000;
+
+        // Initialize Redis
+        initializeRedis();
 
         // Initialize database
         await initializeDatabase();
@@ -34,6 +39,8 @@ async function startServer() {
                 try {
                     await stopWorker();
                     await closeDatabase();
+                    await notificationService.shutdown();
+                    await closeRedis();
                     logger.info('✅ Server stopped');
                     process.exit(0);
                 } catch (error) {

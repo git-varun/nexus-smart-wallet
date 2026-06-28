@@ -26,6 +26,15 @@ export const loginSchema = z.object({
     password: z.string().min(1, 'Password is required')
 });
 
+export const refreshSchema = z.object({
+    refreshToken: z.string().min(1, 'Refresh token is required'),
+    deviceIdentifier: z.string().optional()
+});
+
+export const revokeSessionSchema = z.object({
+    refreshToken: z.string().min(1, 'Refresh token is required')
+});
+
 export const createAccountSchema = z.object({
     chainId: z.number().positive('Chain ID must be a positive integer'),
     walletID: z.enum(SUPPORTED_WALLETS as [string, ...string[]], {
@@ -62,7 +71,9 @@ export const sendTransactionSchema = z.object({
     bundlerID: z.enum(SUPPORTED_BUNDLER as [string, ...string[]], {
         message: `Bundler ID must be one of: ${SUPPORTED_BUNDLER.join(', ')}`
     }),
-    idempotencyKey: z.string().optional()
+    idempotencyKey: z.string().optional(),
+    sessionKeyAddress: ethAddressSchema.optional(),
+    sessionKeySignature: z.string().optional()
 });
 
 export const estimateGasSchema = z.object({
@@ -101,6 +112,7 @@ export const createSessionKeySchema = z.object({
     publicKey: ethAddressSchema,
     chainId: z.number().positive('Chain ID must be a positive integer'),
     expiresAt: z.string().datetime({ message: "Invalid expiration ISO datetime format" }).optional(),
+    signature: z.string().optional(),
     permissions: z.array(z.object({
         target: ethAddressSchema,
         allowedFunctions: z.array(z.string().min(1)),
@@ -135,7 +147,9 @@ export const sendTransactionBatchSchema = z.object({
     bundlerID: z.enum(SUPPORTED_BUNDLER as [string, ...string[]], {
         message: `Bundler ID must be one of: ${SUPPORTED_BUNDLER.join(', ')}`
     }),
-    idempotencyKey: z.string().optional()
+    idempotencyKey: z.string().optional(),
+    sessionKeyAddress: ethAddressSchema.optional(),
+    sessionKeySignature: z.string().optional()
 });
 
 export const validateCompatibilitySchema = z.object({

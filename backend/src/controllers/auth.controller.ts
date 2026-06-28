@@ -2,16 +2,30 @@ import {Request, Response} from 'express';
 import {z} from 'zod';
 import {
     comparePassword,
-    generateToken,
     getAuthStatus,
     logoutUser,
-    validatePasswordStrength
+    validatePasswordStrength,
+    createSession,
+    rotateSession
 } from '../services/auth.service';
 import {createServiceLogger} from '../utils';
 import * as UserRepository from '../repositories/userRepository';
 import {createUser} from "../services/user.service";
+import crypto from 'crypto';
+import {UserSessionModel} from '../models';
+import {AuthenticatedRequest} from '../types/api';
 
 const logger = createServiceLogger('AuthController');
+
+// Helper to extract device info
+function getDeviceInfo(req: Request) {
+    const userAgent = req.headers['user-agent'] || '';
+    const ipAddress = req.ip || req.socket.remoteAddress || 'unknown';
+    const deviceIdentifier = req.body.deviceIdentifier || 
+                             req.header('X-Device-ID') || 
+                             crypto.createHash('md5').update(userAgent + ipAddress).digest('hex');
+    return { deviceIdentifier, userAgent, ipAddress };
+}
 
 // Register new user with email and password
 export const register = async (req: Request, res: Response): Promise<void> => {
@@ -69,6 +83,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
+        // Create new session
+        const { deviceIdentifier, userAgent, ipAddress } = getDeviceInfo(req);
+        const session = await createSession(result.user!.id, deviceIdentifier, userAgent, ipAddress);
+
         res.status(201).json({
             success: true,
             data: {
@@ -77,7 +95,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
                     email: result.user?.email,
                     createdAt: result.user?.createdAt
                 },
-                token: generateToken(result.user!.id, result.user?.email)
+                token: session.accessToken,
+                refreshToken: session.refreshToken,
+                expiresAt: session.expiresAt
             }
         });
 
@@ -115,11 +135,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         const isValidPassword = await comparePassword(password, user.password || '');
 
         if (isValidPassword) {
-            // Generate JWT token
-            const token = generateToken(user.id, user.email);
-
             // Update last login
             await UserRepository.updateLastLogin(user.id);
+
+            // Create new session
+            const { deviceIdentifier, userAgent, ipAddress } = getDeviceInfo(req);
+            const session = await createSession(user.id, deviceIdentifier, userAgent, ipAddress);
 
             res.status(200).json({
                 success: true,
@@ -130,7 +151,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
                         createdAt: user.createdAt,
                         lastLogin: user.lastLogin
                     },
-                    token
+                    token: session.accessToken,
+                    refreshToken: session.refreshToken,
+                    expiresAt: session.expiresAt
                 }
             });
         } else {
@@ -155,14 +178,46 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
-// Logout user (JWT is stateless - client should delete token)
-export const logout = async (req: Request, res: Response): Promise<void> => {
+// Refresh access token using refresh token
+export const refresh = async (req: Request, res: Response): Promise<void> => {
     try {
-        logoutUser();
+        const {refreshToken} = req.body;
+        const {userAgent, ipAddress} = getDeviceInfo(req);
+
+        const session = await rotateSession(refreshToken, userAgent, ipAddress);
 
         res.status(200).json({
             success: true,
-            message: 'Logged out successfully. Please delete the token from client storage.'
+            data: {
+                token: session.accessToken,
+                refreshToken: session.refreshToken,
+                expiresAt: session.expiresAt
+            }
+        });
+    } catch (error: any) {
+        logger.error('Session rotation failed', error);
+        res.status(401).json({
+            success: false,
+            error: {
+                code: 'INVALID_REFRESH_TOKEN',
+                message: error.message || 'Refresh failed'
+            }
+        });
+    }
+};
+
+// Logout user (Invalidate session + blacklist access token)
+export const logout = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const authHeader = req.headers.authorization;
+        const accessToken = authHeader && authHeader.split(' ')[1];
+        const {refreshToken} = req.body;
+
+        await logoutUser(accessToken, refreshToken);
+
+        res.status(200).json({
+            success: true,
+            message: 'Logged out successfully. Tokens invalidated.'
         });
 
     } catch (error) {
@@ -172,6 +227,82 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
             error: {
                 code: 'INTERNAL_ERROR',
                 message: 'Logout failed'
+            }
+        });
+    }
+};
+
+// Get active sessions for logged-in user
+export const getSessions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            res.status(401).json({success: false, error: 'Unauthorized'});
+            return;
+        }
+
+        const sessions = await UserSessionModel.find({userId, isRevoked: false}).sort({updatedAt: -1});
+
+        res.status(200).json({
+            success: true,
+            data: sessions.map(s => ({
+                id: s.id,
+                deviceIdentifier: s.deviceIdentifier,
+                userAgent: s.userAgent,
+                ipAddress: s.ipAddress,
+                expiresAt: s.expiresAt,
+                lastActive: s.updatedAt
+            }))
+        });
+    } catch (error) {
+        logger.error('Failed to get active sessions', error instanceof Error ? error : new Error(String(error)));
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'INTERNAL_ERROR',
+                message: 'Failed to retrieve sessions'
+            }
+        });
+    }
+};
+
+// Revoke a specific session
+export const revokeSessionEndpoint = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+        const {refreshToken} = req.body;
+
+        if (!userId) {
+            res.status(401).json({success: false, error: 'Unauthorized'});
+            return;
+        }
+
+        const session = await UserSessionModel.findOne({refreshToken, userId});
+        if (!session) {
+            res.status(404).json({
+                success: false,
+                error: {
+                    code: 'SESSION_NOT_FOUND',
+                    message: 'Session not found or belongs to another user'
+                }
+            });
+            return;
+        }
+
+        session.isRevoked = true;
+        await session.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Session revoked successfully'
+        });
+    } catch (error) {
+        logger.error('Failed to revoke session', error instanceof Error ? error : new Error(String(error)));
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'INTERNAL_ERROR',
+                message: 'Failed to revoke session'
             }
         });
     }

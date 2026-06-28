@@ -7,29 +7,27 @@ services:
       - ./backend/.env
     environment:
       LOG_DIR: /app/logs
-      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       MONGODB_URI: mongodb://mongo:27017/nexus-wallet
-      PORT: 3000
+      REDIS_URI: redis://redis:6379
+      REDIS_ENABLED: "true"
+      PORT: 3001
     ports:
-      - "${BACKEND_PORT:-3000}:3000"
+      - "${BACKEND_PORT:-3001}:3001"
     volumes:
       - ./docker-logs/backend:/app/logs
       - ./backend/uploads:/app/uploads
     depends_on:
       - mongo
+      - redis
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
-    command: sh -c "mkdir -p /app/logs && pnpm dev --host 0.0.0.0 2>&1 | tee -a /app/logs/vite.log"
     ports:
-      - "${FRONTEND_PORT:-8080}:3001"
-    volumes:
-      - ./docker-logs/frontend:/app/logs
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
     restart: unless-stopped
@@ -47,5 +45,14 @@ services:
       - mongo-data:/data/db
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
 volumes:
   mongo-data:
+  redis-data:

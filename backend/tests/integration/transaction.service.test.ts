@@ -96,6 +96,13 @@ describe("Transaction Service Integration Tests", () => {
         });
     });
 
+    afterAll(async () => {
+        const { closeRedis } = require("../../src/services/redis.service");
+        const { notificationService } = require("../../src/services/notification.service");
+        await notificationService.shutdown();
+        await closeRedis();
+    });
+
     it("should enqueue a valid transaction successfully", async () => {
         const txRequest = {
             to: "0x1234567890123456789012345678901234567890" as `0x${string}`,

@@ -21,4 +21,11 @@ export interface SessionKey {
     expiryTime: number;
     allowedTargets?: string[];
     isActive: boolean;
+    permissions?: { target: string; allowedFunctions: string[]; spendingLimit: string }[];
+    createdAt?: string;
+    updatedAt?: string;
+    revokedAt?: string;
+    chainId?: number;
+    ownerAddress?: string;
+    userId?: string;
 }

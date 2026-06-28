@@ -1,14 +1,15 @@
 import {transactionRepository} from '../repositories';
-import {createServiceLogger, getCentralAccount, getCentralWalletNonce, getRPC_URL, metrics} from '../utils';
+import {createServiceLogger, getRPC_URL, metrics} from '../utils';
 import {Address, getAddress, Hex, isAddress, parseEther, zeroAddress} from 'viem'
 import {entryPoint06Address, entryPoint07Address} from "viem/account-abstraction";
 import {TransactionInfo, TransactionRequest} from '../types';
 import {getUserAccount} from "./account.service";
 import {IAccount, NonceModel, ITransaction} from "../models";
 import {updateAccount} from "../repositories/accountRepository";
-import {createTransaction, TransactionQueryFilters} from "../repositories/transactionRepository";
+import {TransactionQueryFilters} from "../repositories/transactionRepository";
 import {rpcProvider, bundlerProvider, paymasterProvider} from "./provider.service";
 import {notificationService} from "./notification.service";
+import {getAccount} from "../scripts/permissionless";
 
 
 const logger = createServiceLogger('TransactionService');
@@ -140,7 +141,8 @@ export async function sendTransaction(userId: string, chainId: number, walletID:
             chainId: accountDetails.chainId,
             status: 'queued',
             queuedAt: new Date(),
-            idempotencyKey: request.idempotencyKey
+            idempotencyKey: request.idempotencyKey,
+            sessionKeyAddress: request.sessionKeyAddress
         });
 
         logger.info("Transaction enqueued successfully", transaction.id);
@@ -167,6 +169,7 @@ export async function sendTransactionBatch(
     request: {
         calls: { to: string; value?: string | number; data?: string }[];
         idempotencyKey?: string;
+        sessionKeyAddress?: string;
     }
 ) {
     try {
@@ -205,7 +208,8 @@ export async function sendTransactionBatch(
             chainId: accountDetails.chainId,
             status: 'queued',
             queuedAt: new Date(),
-            idempotencyKey: request.idempotencyKey
+            idempotencyKey: request.idempotencyKey,
+            sessionKeyAddress: request.sessionKeyAddress
         });
 
         logger.info("Batch transaction enqueued successfully", transaction.id);
@@ -441,19 +445,41 @@ export async function getGasPriceObject(chainId: number, bundlerId: string): Pro
     }
 }
 
-export async function getNextNonce(signerAddress: string, chainId: number): Promise<number> {
-    const onChainCount = await getCentralWalletNonce(chainId);
-    const record = await NonceModel.findOneAndUpdate(
-        { signerAddress: signerAddress.toLowerCase(), chainId },
-        { $setOnInsert: { nonce: onChainCount } },
-        { upsert: true, new: true }
-    );
-    const nextNonce = Math.max(record.nonce, onChainCount);
-    await NonceModel.updateOne(
-        { signerAddress: signerAddress.toLowerCase(), chainId },
-        { $set: { nonce: nextNonce + 1 } }
-    );
-    return nextNonce;
+export async function getNextNonce(
+    smartAccountAddress: string,
+    chainId: number,
+    getOnChainNonce: () => Promise<bigint>
+): Promise<bigint> {
+    const onChainCount = await getOnChainNonce().catch(() => 0n);
+    const onChainCountNum = Number(onChainCount);
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        // 1. Get the current database record or create it if missing
+        const record = await NonceModel.findOneAndUpdate(
+            { signerAddress: smartAccountAddress.toLowerCase(), chainId },
+            { $setOnInsert: { nonce: onChainCountNum } },
+            { upsert: true, new: true }
+        );
+
+        const currentVal = Math.max(record.nonce, onChainCountNum);
+
+        // 2. Try to atomically update the nonce if it has not changed since we read it
+        const res = await NonceModel.updateOne(
+            {
+                signerAddress: smartAccountAddress.toLowerCase(),
+                chainId,
+                nonce: record.nonce
+            },
+            { $set: { nonce: currentVal + 1 } }
+        );
+
+        if (res.modifiedCount > 0) {
+            // Successfully claimed this nonce
+            return BigInt(currentVal);
+        }
+        // Concurrent update occurred, retry loop
+    }
 }
 
 function checkIfTransient(errorMsg: string): boolean {
@@ -504,8 +530,14 @@ export async function executeTransactionOnChain(tx: ITransaction) {
         const isDeployment = !accountDetails.isDeployed && tx.to === zeroAddress;
         
         // Nonce and endpoint tracking
-        const signerAddress = (await getCentralAccount()).address;
-        const nextNonce = await getNextNonce(signerAddress, tx.chainId);
+        const nextNonce = await getNextNonce(
+            accountDetails.address,
+            tx.chainId,
+            async () => {
+                const smartAccount = await getAccount(accountDetails.walletID, accountDetails);
+                return await smartAccount.getNonce();
+            }
+        );
         tx.rpcEndpoint = getRPC_URL(tx.chainId, tx.bundlerID);
 
         let hash: Hex;
@@ -516,6 +548,7 @@ export async function executeTransactionOnChain(tx: ITransaction) {
                     to: zeroAddress,
                     value: parseEther('0'),
                 }],
+                nonce: nextNonce,
                 ...paymasterData,
                 ...factory,
                 ...gasPrice
@@ -527,6 +560,7 @@ export async function executeTransactionOnChain(tx: ITransaction) {
                     data: c.data as Hex || '0x',
                     value: parseEther(c.value || '0')
                 })),
+                nonce: nextNonce,
                 ...paymasterData,
                 ...gasPrice
             });
@@ -537,6 +571,7 @@ export async function executeTransactionOnChain(tx: ITransaction) {
                     data: tx.data as Hex || '0x',
                     value: parseEther(tx.value || '0')
                 }],
+                nonce: nextNonce,
                 ...paymasterData,
                 ...gasPrice
             });

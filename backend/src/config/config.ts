@@ -47,6 +47,12 @@ export const config = {
         jwtSecret: process.env.JWT_SECRET || '',
         tokenExpiryHours: 24,
         metricsKey: process.env.METRICS_KEY || ''
+    },
+
+    // Redis
+    redis: {
+        uri: process.env.REDIS_URI || 'redis://localhost:6379',
+        enabled: process.env.REDIS_ENABLED !== 'false'
     }
 };
 
@@ -103,6 +109,11 @@ export function validateConfig(): void {
                 errors.push(`Invalid CORS origin: ${origin}. Must start with http:// or https://, or be '*'`);
             }
         }
+    }
+
+    // 8. Validate REDIS_URI
+    if (config.redis.enabled && !config.redis.uri) {
+        errors.push('REDIS_URI is required when Redis is enabled. Please set it in environment variables.');
     }
 
     // If any validation errors exist, crash startup immediately

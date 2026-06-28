@@ -11,7 +11,8 @@ export async function createSessionKeyService(
     publicKey: string,
     chainId: number,
     permissions: ISessionPermission[],
-    expiresAtStr?: string
+    expiresAtStr?: string,
+    signature?: string
 ): Promise<{ success: boolean; sessionKey?: ISessionKey; error?: string }> {
     try {
         const expiresAt = expiresAtStr ? new Date(expiresAtStr) : new Date(Date.now() + 24 * 60 * 60 * 1000); // default 24h
@@ -32,7 +33,8 @@ export async function createSessionKeyService(
             chainId,
             permissions,
             expiresAt,
-            isActive: true
+            isActive: true,
+            signature
         });
 
         logger.info("Session key registered", { id: sessionKey.id, publicKey });
@@ -126,5 +128,25 @@ export async function validateSessionKeyService(
     } catch (err: any) {
         logger.error("Failed to validate session key", err);
         return { success: false, isValid: false, error: err.message };
+    }
+}
+
+export async function deductSessionKeySpendingLimit(
+    publicKey: string,
+    targetContract: string,
+    value: bigint
+): Promise<void> {
+    const sessionKey = await sessionKeyRepository.findSessionKeyByPublicKey(publicKey);
+    if (!sessionKey) return;
+
+    const permission = sessionKey.permissions.find(p => p.target.toLowerCase() === targetContract.toLowerCase());
+    if (permission) {
+        const currentLimit = BigInt(permission.spendingLimit || "0");
+        if (currentLimit > 0n) {
+            const newLimit = currentLimit - value;
+            permission.spendingLimit = (newLimit > 0n ? newLimit : 0n).toString();
+            await sessionKey.save();
+            logger.info("Session key spending limit deducted", { publicKey, targetContract, oldLimit: currentLimit.toString(), newLimit: permission.spendingLimit });
+        }
     }
 }

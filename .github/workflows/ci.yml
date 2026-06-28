@@ -47,9 +47,9 @@ jobs:
         env:
           NODE_ENV: test
           MONGODB_URI: mongodb://localhost:27017/nexus-wallet-test
-          ALCHEMY_API_KEY: 5-tPjpBdh1XVOe9c2TTd45W_0QXR-APW
-          JWT_SECRET: supersecretjwttestkeyforciandunittests
-          MASTER_WALLET_PRIVATE_KEY: 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          MASTER_WALLET_PRIVATE_KEY: ${{ secrets.MASTER_WALLET_PRIVATE_KEY }}
           MASTER_WALLET_ENABLED: true
         run: |
           cd backend
@@ -83,7 +83,7 @@ jobs:
       - name: Run Lint
         run: |
           cd frontend
-          npm run lint || true
+          npm run lint
 
       - name: Run Build
         run: |

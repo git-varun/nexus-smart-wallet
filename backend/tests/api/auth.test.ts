@@ -4,19 +4,35 @@ process.env.JWT_SECRET = "supersecretjwtsecretmustbe32characterslong!!!";
 import request from "supertest";
 import createApp from "../../src/app";
 import { userRepository } from "../../src/repositories";
+import { MongoMemoryServer } from "mongodb-memory-server";
+import mongoose from "mongoose";
 
 jest.mock("../../src/repositories", () => ({
     userRepository: {
         findByEmail: jest.fn(),
         createUser: jest.fn(),
+        findById: jest.fn(),
     }
 }));
 
 describe("Authentication API Endpoint Tests", () => {
     let app: any;
+    let mongoServer: MongoMemoryServer;
 
     beforeAll(async () => {
+        mongoServer = await MongoMemoryServer.create();
+        const uri = mongoServer.getUri();
+        await mongoose.connect(uri);
         app = await createApp();
+    });
+
+    afterAll(async () => {
+        const { closeRedis } = require("../../src/services/redis.service");
+        const { notificationService } = require("../../src/services/notification.service");
+        await notificationService.shutdown();
+        await closeRedis();
+        await mongoose.disconnect();
+        await mongoServer.stop();
     });
 
     beforeEach(() => {
@@ -38,6 +54,11 @@ describe("Authentication API Endpoint Tests", () => {
 
     it("should register a user with correct parameters", async () => {
         (userRepository.findByEmail as jest.Mock).mockResolvedValue(null);
+        (userRepository.findById as jest.Mock).mockResolvedValue({
+            id: "user-123",
+            email: "test@example.com",
+            createdAt: new Date(),
+        });
         (userRepository.createUser as jest.Mock).mockResolvedValue({
             id: "user-123",
             email: "test@example.com",

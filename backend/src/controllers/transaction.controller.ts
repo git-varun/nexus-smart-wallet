@@ -10,7 +10,9 @@ import {
     sendTransactionBatch as sendTransactionBatchService
 } from '../services/transaction.service';
 import {createServiceLogger} from '../utils';
-import {transactionRepository} from '../repositories';
+import {transactionRepository, sessionKeyRepository} from '../repositories';
+import {verifyMessage, parseEther} from 'viem';
+import {validateSessionKeyService, deductSessionKeySpendingLimit} from '../services/sessionKey.service';
 
 
 const logger = createServiceLogger('TransactionController');
@@ -29,7 +31,7 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             return;
         }
 
-        const {to, data, value, chainId, walletID, paymasterID, bundlerID} = req.body;
+        const {to, data, value, chainId, walletID, paymasterID, bundlerID, sessionKeyAddress, sessionKeySignature} = req.body;
 
         if (!to) {
             res.status(400).json({
@@ -94,10 +96,90 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             chainId,
             walletID,
             paymasterID,
-            bundlerID
+            bundlerID,
+            sessionKeyAddress
         });
 
         const idempotencyKey = req.body.idempotencyKey || req.header('Idempotency-Key');
+
+        if (sessionKeyAddress || sessionKeySignature) {
+            if (!sessionKeyAddress || !sessionKeySignature) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'INVALID_SESSION_KEY_PAYLOAD',
+                        message: 'Both sessionKeyAddress and sessionKeySignature must be provided if using a session key'
+                    }
+                });
+                return;
+            }
+
+            const sessionKey = await sessionKeyRepository.findSessionKeyByPublicKey(sessionKeyAddress);
+            if (!sessionKey || !sessionKey.isActive) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'INVALID_SESSION_KEY',
+                        message: 'Session key is invalid, inactive, or revoked'
+                    }
+                });
+                return;
+            }
+
+            if (sessionKey.userId !== userId) {
+                res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: 'You do not own this session key'
+                    }
+                });
+                return;
+            }
+
+            const message = `Execute transaction:\nTo: ${to.toLowerCase()}\nValue: ${value || '0'}\nData: ${data || '0x'}\nChain ID: ${chainId}\nSession Key: ${sessionKeyAddress.toLowerCase()}`;
+            const isValidSig = await verifyMessage({
+                address: sessionKeyAddress as `0x${string}`,
+                message,
+                signature: sessionKeySignature
+            }).catch(() => false);
+
+            if (!isValidSig) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'INVALID_SIGNATURE',
+                        message: 'Session key signature verification failed'
+                    }
+                });
+                return;
+            }
+
+            const txValue = value ? parseEther(value.toString()) : 0n;
+            const functionSelector = data && data.startsWith('0x') && data.length >= 10
+                ? data.slice(0, 10).toLowerCase()
+                : '0x';
+
+            const validationResult = await validateSessionKeyService(
+                sessionKeyAddress,
+                to,
+                functionSelector,
+                txValue
+            );
+
+            if (!validationResult.success || !validationResult.isValid) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'SESSION_VALIDATION_FAILED',
+                        message: validationResult.error || 'Session validation failed'
+                    }
+                });
+                return;
+            }
+
+            await deductSessionKeySpendingLimit(sessionKeyAddress, to, txValue);
+        }
 
         const result = await sendTransactionService(
             userId,
@@ -105,7 +187,7 @@ export async function sendTransaction(req: AuthenticatedRequest, res: Response):
             walletID,
             paymasterID,
             bundlerID,
-            {to, data, value: value?.toString(), idempotencyKey}
+            {to, data, value: value?.toString(), idempotencyKey, sessionKeyAddress}
         );
 
         if (result.success && result.transaction) {
@@ -671,7 +753,7 @@ export async function sendTransactionBatch(req: AuthenticatedRequest, res: Respo
             return;
         }
 
-        const {calls, chainId, walletID, paymasterID, bundlerID} = req.body;
+        const {calls, chainId, walletID, paymasterID, bundlerID, sessionKeyAddress, sessionKeySignature} = req.body;
 
         if (!calls || !Array.isArray(calls) || calls.length === 0) {
             res.status(400).json({
@@ -734,10 +816,97 @@ export async function sendTransactionBatch(req: AuthenticatedRequest, res: Respo
             chainId,
             walletID,
             paymasterID,
-            bundlerID
+            bundlerID,
+            sessionKeyAddress
         });
 
         const idempotencyKey = req.body.idempotencyKey || req.header('Idempotency-Key');
+
+        if (sessionKeyAddress || sessionKeySignature) {
+            if (!sessionKeyAddress || !sessionKeySignature) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'INVALID_SESSION_KEY_PAYLOAD',
+                        message: 'Both sessionKeyAddress and sessionKeySignature must be provided if using a session key'
+                    }
+                });
+                return;
+            }
+
+            const sessionKey = await sessionKeyRepository.findSessionKeyByPublicKey(sessionKeyAddress);
+            if (!sessionKey || !sessionKey.isActive) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'INVALID_SESSION_KEY',
+                        message: 'Session key is invalid, inactive, or revoked'
+                    }
+                });
+                return;
+            }
+
+            if (sessionKey.userId !== userId) {
+                res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: 'You do not own this session key'
+                    }
+                });
+                return;
+            }
+
+            const callsStr = calls.map(c => `${c.to.toLowerCase()}:${c.value || '0'}:${c.data || '0x'}`).join(',');
+            const message = `Execute batch transaction:\nCalls: ${callsStr}\nChain ID: ${chainId}\nSession Key: ${sessionKeyAddress.toLowerCase()}`;
+            
+            const isValidSig = await verifyMessage({
+                address: sessionKeyAddress as `0x${string}`,
+                message,
+                signature: sessionKeySignature
+            }).catch(() => false);
+
+            if (!isValidSig) {
+                res.status(400).json({
+                    success: false,
+                    error: {
+                        code: 'INVALID_SIGNATURE',
+                        message: 'Session key signature verification failed'
+                    }
+                });
+                return;
+            }
+
+            for (const call of calls) {
+                const txValue = call.value ? parseEther(call.value.toString()) : 0n;
+                const functionSelector = call.data && call.data.startsWith('0x') && call.data.length >= 10
+                    ? call.data.slice(0, 10).toLowerCase()
+                    : '0x';
+
+                const validationResult = await validateSessionKeyService(
+                    sessionKeyAddress,
+                    call.to,
+                    functionSelector,
+                    txValue
+                );
+
+                if (!validationResult.success || !validationResult.isValid) {
+                    res.status(400).json({
+                        success: false,
+                        error: {
+                            code: 'SESSION_VALIDATION_FAILED',
+                            message: `Session validation failed for call to ${call.to}: ${validationResult.error || 'Unauthorized'}`
+                        }
+                    });
+                    return;
+                }
+            }
+
+            for (const call of calls) {
+                const txValue = call.value ? parseEther(call.value.toString()) : 0n;
+                await deductSessionKeySpendingLimit(sessionKeyAddress, call.to, txValue);
+            }
+        }
 
         const result = await sendTransactionBatchService(
             userId,
@@ -745,7 +914,7 @@ export async function sendTransactionBatch(req: AuthenticatedRequest, res: Respo
             walletID,
             paymasterID,
             bundlerID,
-            {calls, idempotencyKey}
+            {calls, idempotencyKey, sessionKeyAddress}
         );
 
         if (result.success && result.transaction) {

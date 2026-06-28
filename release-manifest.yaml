@@ -1,0 +1,37 @@
+version: v1.0.0
+commit: 327f46f738be81cf732e60afeecca84e9e45d7d5
+branch: master
+release-date: "2026-06-28"
+
+build:
+  frontend: PASS
+  backend: PASS
+
+tests:
+  suites: 8
+  passed: 8
+  total-tests: 19
+
+manifest-artifacts:
+  - docs/GA_CERTIFICATION.md
+  - docs/SBOM.md
+  - docs/INDEX_REPORT.md
+  - docs/LOAD_TESTING_REPORT.md
+  - docs/PERFORMANCE_REPORT.md
+  - docs/SECURITY_REPORT.md
+  - docs/ACCESSIBILITY_REPORT.md
+  - docs/PRODUCTION_READINESS.md
+  - docs/OPERATIONS_REPORT.md
+  - docs/DOCUMENTATION_REPORT.md
+  - docs/RELEASE_CHECKLIST.md
+  - docs/KNOWN_ISSUES.md
+
+docker:
+  backend-base-image: node:22.13-alpine
+  backend-runtime-privilege: su-exec (non-root node user)
+  frontend-base-image: nginx:alpine
+
+database:
+  mongo-version: "7.0"
+  redis-version: "7.0-alpine"
+  explain-status: "100% IXSCAN, 0 COLLSCAN"

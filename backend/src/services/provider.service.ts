@@ -1,5 +1,5 @@
 import { createPublicClient, http, defineChain, PublicClient, Address, Hex } from "viem";
-import { createBundlerClient, createPaymasterClient, entryPoint06Address, entryPoint07Address } from "viem/account-abstraction";
+import { createBundlerClient, createPaymasterClient } from "viem/account-abstraction";
 import { getAccount } from "../scripts/permissionless";
 import { getAlchemyPaymasterStubData, getUserOperationByHash } from "../scripts/alchemyApi";
 import { getUserOperationGasPrice, getUserOperationStatus_PM } from "../scripts/pimlicoApi";
@@ -156,18 +156,18 @@ class AlchemyBundlerProvider implements IBundlerProvider {
         });
     }
 
-    public async getUserOperation(hash: Hex, chainId: number): Promise<any> {
+    public async getUserOperation(hash: Hex, _chainId: number): Promise<any> {
         return getUserOperationByHash(hash);
     }
 
-    public async getGasPrice(chainId: number): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
+    public async getGasPrice(_chainId: number): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
         return {
             maxFeePerGas: BigInt(1500000000), // 1.5 gwei fallback
             maxPriorityFeePerGas: BigInt(100000000) // 0.1 gwei fallback
         };
     }
 
-    public async getGasPriceRaw(chainId: number): Promise<any> {
+    public async getGasPriceRaw(_chainId: number): Promise<any> {
         return {
             gasPrice: {
                 fast: { maxFeePerGas: "0x59682f00", maxPriorityFeePerGas: "0x5f5e100" },
@@ -181,7 +181,7 @@ class AlchemyBundlerProvider implements IBundlerProvider {
 class AlchemyPaymasterProvider implements IPaymasterProvider {
     public id = "ALCHEMY";
 
-    public getPaymasterClient(chainId: number): any {
+    public getPaymasterClient(_chainId: number): any {
         return undefined; // Alchemy paymaster is handled implicitly via the Alchemy bundler client URL
     }
 
@@ -244,9 +244,9 @@ class PimlicoPaymasterProvider implements IPaymasterProvider {
     }
 
     public async getPaymasterStubData(
-        userOp: any,
-        entryPointAddress: Address,
-        chainId: number
+        _userOp: any,
+        _entryPointAddress: Address,
+        _chainId: number
     ): Promise<any> {
         // Implement stub logic or sponsorship request if required
         return {};

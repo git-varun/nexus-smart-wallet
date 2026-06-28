@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
-import os from "node:os";
 import {Request, Response} from "express";
 import {createServiceLogger, getRPC_URL, metrics} from "../utils";
 import {getWorkerStatus} from "../services/worker.service";
 import {config, validateConfig} from "../config/config";
+import {isRedisAvailable} from "../services/redis.service";
 
 const logger = createServiceLogger('HealthController');
 
@@ -40,12 +40,15 @@ export const startup = (req: Request, res: Response) => {
 async function checkUrlHealth(url: string): Promise<boolean> {
     if (!url) return false;
     try {
-        // Handle Alchemy URLs that might need custom pathing or just direct post checks
-        const checkUrl = url.includes("api.g.alchemy.com") ? url : url;
-        const response = await fetch(checkUrl, {
+        // Alchemy Smart Wallet/Bundler APIs don't support web3_clientVersion on api.g.alchemy.com
+        // and will return HTTP 500. We use eth_supportedEntryPoints for those.
+        const isAlchemySmartWalletApi = url.includes("api.g.alchemy.com");
+        const method = isAlchemySmartWalletApi ? 'eth_supportedEntryPoints' : 'web3_clientVersion';
+
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', method: 'web3_clientVersion', params: [], id: 1 }),
+            body: JSON.stringify({ jsonrpc: '2.0', method, params: [], id: 1 }),
             signal: AbortSignal.timeout(3000) // 3 seconds timeout
         });
         return response.ok;
@@ -103,6 +106,15 @@ export const readiness = async (req: Request, res: Response) => {
                 status: pimlicoOk ? "UP" : "DOWN"
             };
             if (!pimlicoOk) isHealthy = false;
+        }
+
+        // 5. Verify Redis connectivity if enabled
+        if (config.redis.enabled) {
+            const redisOk = isRedisAvailable();
+            checks.redis = {
+                status: redisOk ? "UP" : "DOWN"
+            };
+            if (!redisOk) isHealthy = false;
         }
 
         const httpStatus = isHealthy ? 200 : 503;

@@ -1,6 +1,7 @@
 import {NextFunction, Response} from 'express';
 import {AuthenticatedRequest} from '../types';
 import {validateToken} from '../services/auth.service';
+import {logContextStorage} from '../utils/logger';
 
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     const authHeader = req.headers.authorization;
@@ -23,7 +24,6 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     };
 
     // Update log context with user ID
-    const { logContextStorage } = require('../utils/logger');
     const store = logContextStorage.getStore();
     if (store) {
         store.userId = tokenResult.user.id;

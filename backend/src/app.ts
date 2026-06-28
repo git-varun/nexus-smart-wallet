@@ -8,8 +8,11 @@ import {createServiceLogger, metrics, logger as globalLogger} from './utils';
 
 const logger = createServiceLogger('App');
 
-async function createApp() {
+async function createApp(): Promise<express.Application> {
     const app = express();
+
+    // Enable trust proxy for correct client IP detection behind reverse proxies/load balancers
+    app.set('trust proxy', true);
 
     // Validate configuration
     validateConfig();
@@ -59,14 +62,14 @@ async function createApp() {
     app.use((req, res, next) => {
         const start = Date.now();
         metrics.activeRequests += 1;
-        
+
         res.on('finish', () => {
             metrics.activeRequests -= 1;
             const duration = Date.now() - start;
             metrics.trackApiRequest(res.statusCode, duration);
             globalLogger.apiRequest('API', req.method, req.path, res.statusCode, duration);
         });
-        
+
         next();
     });
 
@@ -85,7 +88,7 @@ async function createApp() {
             version: '1.0.0',
             status: 'running',
             docs: {
-                auth: 'POST /api/auth/authenticate',
+                auth: 'POST /api/auth/login',
                 accounts: 'POST /api/accounts/create | GET /api/accounts/me',
                 transactions: 'POST /api/transactions/send | GET /api/transactions/history',
                 health: 'GET /health'

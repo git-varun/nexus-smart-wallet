@@ -1,12 +1,28 @@
 import {Request, Response, NextFunction} from 'express';
 import {config} from '../config/config';
+import {getRedisClient, isRedisAvailable} from '../services/redis.service';
 
 interface RateLimitStoreEntry {
     count: number;
     resetTime: number;
 }
 
-const rateLimitStore = new Map<string, RateLimitStoreEntry>();
+// In-memory store (acts as backup / graceful degradation fallback)
+const fallbackStore = new Map<string, RateLimitStoreEntry>();
+
+// Eviction worker to prevent memory leak in fallback store
+const evictionInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of fallbackStore.entries()) {
+        if (now > value.resetTime) {
+            fallbackStore.delete(key);
+        }
+    }
+}, 60000); // Clean up expired in-memory entries every minute
+
+if (typeof evictionInterval.unref === 'function') {
+    evictionInterval.unref();
+}
 
 interface RateLimitOptions {
     windowMs: number;
@@ -16,7 +32,7 @@ interface RateLimitOptions {
 }
 
 export function createRateLimiter(options: RateLimitOptions) {
-    return (req: Request, res: Response, next: NextFunction): void => {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         // Skip rate limit in test environment unless explicitly needed
         if (config.nodeEnv === 'test') {
             next();
@@ -24,26 +40,56 @@ export function createRateLimiter(options: RateLimitOptions) {
         }
 
         const ip = req.ip || req.socket.remoteAddress || 'unknown';
-        const key = `${req.baseUrl || ''}${req.path}:${ip}`;
+        const key = `ratelimit:${req.baseUrl || ''}${req.path}:${ip}`;
         const now = Date.now();
 
-        let record = rateLimitStore.get(key);
+        let currentCount = 0;
+        let resetTime = now + options.windowMs;
 
-        if (!record || now > record.resetTime) {
-            record = {
-                count: 0,
-                resetTime: now + options.windowMs
-            };
+        const redis = getRedisClient();
+
+        if (redis && isRedisAvailable()) {
+            try {
+                // Redis implementation (Atomic transaction using Multi)
+                const pipeline = redis.multi();
+                pipeline.incr(key);
+                pipeline.ttl(key);
+                const results = await pipeline.exec();
+                
+                if (results) {
+                    const countResult = results[0][1];
+                    const ttlResult = results[1][1];
+
+                    if (typeof countResult === 'number') {
+                        currentCount = countResult;
+                        // Set TTL on first request in the window
+                        if (currentCount === 1) {
+                            await redis.expire(key, Math.ceil(options.windowMs / 1000));
+                            resetTime = now + options.windowMs;
+                        } else if (typeof ttlResult === 'number' && ttlResult > 0) {
+                            resetTime = now + (ttlResult * 1000);
+                        }
+                    }
+                }
+            } catch (err) {
+                // Connection failed - fallback to in-memory store
+                console.error("Redis rate limiter error, falling back to local memory store:", err);
+                const result = runFallbackLimiter(key, options, now);
+                currentCount = result.count;
+                resetTime = result.resetTime;
+            }
+        } else {
+            // Redis unavailable - use fallback store
+            const result = runFallbackLimiter(key, options, now);
+            currentCount = result.count;
+            resetTime = result.resetTime;
         }
 
-        record.count += 1;
-        rateLimitStore.set(key, record);
-
         res.setHeader('X-RateLimit-Limit', options.max);
-        res.setHeader('X-RateLimit-Remaining', Math.max(0, options.max - record.count));
-        res.setHeader('X-RateLimit-Reset', Math.ceil(record.resetTime / 1000));
+        res.setHeader('X-RateLimit-Remaining', Math.max(0, options.max - currentCount));
+        res.setHeader('X-RateLimit-Reset', Math.ceil(resetTime / 1000));
 
-        if (record.count > options.max) {
+        if (currentCount > options.max) {
             res.status(429).json({
                 success: false,
                 error: {
@@ -59,6 +105,22 @@ export function createRateLimiter(options: RateLimitOptions) {
         next();
     };
 }
+
+function runFallbackLimiter(key: string, options: RateLimitOptions, now: number): { count: number; resetTime: number } {
+    let record = fallbackStore.get(key);
+
+    if (!record || now > record.resetTime) {
+        record = {
+            count: 0,
+            resetTime: now + options.windowMs
+        };
+    }
+
+    record.count += 1;
+    fallbackStore.set(key, record);
+    return record;
+}
+
 
 // Separate rate limits configurations (configurable via environment variables)
 export const authRateLimiter = createRateLimiter({

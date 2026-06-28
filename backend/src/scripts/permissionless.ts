@@ -11,11 +11,9 @@ import {
     entryPoint07Address,
     SmartAccount
 } from "viem/account-abstraction"
-import {createServiceLogger, generateSalt, getCentralAccount, getRPC_URL} from "../utils";
+import {generateSalt, getCentralAccount, getRPC_URL} from "../utils";
 import {Address, createPublicClient, defineChain, http} from "viem";
 import {IAccount} from "../models";
-
-const logger = createServiceLogger("Accounts Script");
 
 function getChain(chainId: number) {
     return defineChain({

@@ -15,6 +15,7 @@ export interface ISessionKey extends Document {
     expiresAt: Date;
     isActive: boolean;
     revokedAt?: Date;
+    signature?: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -34,6 +35,7 @@ const sessionKeySchema = new Schema<ISessionKey>({
     expiresAt: { type: Date, required: true },
     isActive: { type: Boolean, default: true },
     revokedAt: { type: Date },
+    signature: { type: String },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 }, {
@@ -43,6 +45,8 @@ const sessionKeySchema = new Schema<ISessionKey>({
 // Database indexes
 sessionKeySchema.index({ ownerAddress: 1, chainId: 1 });
 sessionKeySchema.index({ publicKey: 1 }, { unique: true });
+sessionKeySchema.index({ userId: 1 });
+sessionKeySchema.index({ userId: 1, ownerAddress: 1, chainId: 1 });
 
 sessionKeySchema.set('toJSON', {
     transform: function (_doc, ret) {

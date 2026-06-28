@@ -3,23 +3,47 @@ import {executeTransactionOnChain} from './transaction.service';
 import {reconcileAllAccountsDeploymentStatus} from './account.service';
 import {runBackgroundPortfolioSync} from './portfolio.service';
 import {createServiceLogger} from '../utils';
+import {bundlerProvider} from './provider.service';
+import crypto from 'crypto';
+import {getRedisClient} from './redis.service';
 
 const logger = createServiceLogger('QueueWorker');
 let running = false;
+let isProcessingJob = false;
+const workerInstanceId = `worker-${crypto.randomUUID().substring(0, 8)}`;
+
 let intervalId: NodeJS.Timeout | null = null;
 let reconciliationIntervalId: NodeJS.Timeout | null = null;
 let portfolioSyncIntervalId: NodeJS.Timeout | null = null;
+let staleRecoveryIntervalId: NodeJS.Timeout | null = null;
+let heartbeatIntervalId: NodeJS.Timeout | null = null;
 
 export function getWorkerStatus(): boolean {
     return running;
 }
 
+export function getWorkerInstanceId(): string {
+    return workerInstanceId;
+}
+
+async function writeHeartbeat() {
+    try {
+        const redis = getRedisClient();
+        if (redis) {
+            await redis.set(`worker:heartbeat:${workerInstanceId}`, 'active', 'EX', 10);
+        }
+        logger.debug(`Worker heartbeat ping: ${workerInstanceId}`);
+    } catch (err) {
+        logger.error('Failed to write worker heartbeat', err as Error);
+    }
+}
+
 export async function startWorker() {
     if (running) return;
     running = true;
-    logger.info('🚀 Transaction Queue Worker starting...');
+    logger.info(`🚀 Transaction Queue Worker starting with ID: ${workerInstanceId}`);
 
-    // Recovery path: Reset stuck processing transactions back to queued on crash restart
+    // Initial crash recovery path: Reset stuck processing transactions back to queued on crash restart
     try {
         const recovered = await TransactionModel.updateMany(
             { status: 'processing' },
@@ -32,13 +56,21 @@ export async function startWorker() {
         logger.error('Failed to run queue crash recovery', err as Error);
     }
 
+    // Recover stuck submitted transactions
+    await recoverSubmittedTransactions();
+
+    // Heartbeat loop (every 5 seconds)
+    await writeHeartbeat();
+    heartbeatIntervalId = setInterval(writeHeartbeat, 5000);
+
+    // Queue worker polling loop (every 2 seconds)
     intervalId = setInterval(async () => {
         try {
             await processQueue();
         } catch (error) {
             logger.error('Worker loop error', error as Error);
         }
-    }, 2000); // Poll database every 2 seconds
+    }, 2000);
 
     // Run reconciliation on start, then every 30 seconds
     reconcileAllAccountsDeploymentStatus().catch(err => logger.error('Failed initial reconciliation', err));
@@ -59,10 +91,21 @@ export async function startWorker() {
             logger.error('Portfolio background sync error', error as Error);
         }
     }, 900000);
+
+    // Run stale job recovery every 60 seconds
+    staleRecoveryIntervalId = setInterval(async () => {
+        try {
+            await recoverStaleJobs();
+        } catch (error) {
+            logger.error('Stale job recovery worker error', error as Error);
+        }
+    }, 60000);
 }
 
 export async function stopWorker() {
     running = false;
+    
+    // Clear all interval timers immediately
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
@@ -75,6 +118,25 @@ export async function stopWorker() {
         clearInterval(portfolioSyncIntervalId);
         portfolioSyncIntervalId = null;
     }
+    if (staleRecoveryIntervalId) {
+        clearInterval(staleRecoveryIntervalId);
+        staleRecoveryIntervalId = null;
+    }
+    if (heartbeatIntervalId) {
+        clearInterval(heartbeatIntervalId);
+        heartbeatIntervalId = null;
+    }
+
+    // Graceful shutdown: wait for active job to finish execution
+    if (isProcessingJob) {
+        logger.info('Waiting for active transaction job to complete...');
+        let checks = 0;
+        while (isProcessingJob && checks < 30) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            checks++;
+        }
+    }
+
     logger.info('🛑 Transaction Queue Worker stopped');
 }
 
@@ -90,33 +152,33 @@ async function processQueue() {
     const now = Date.now();
 
     for (const t of txs) {
+        let isReady = false;
         if (t.status === 'queued') {
-            targetTx = t;
-            break;
-        }
-        if (t.status === 'retrying') {
-            // Exponential backoff: 2^retryCount * 2000 ms
-            const backoffMs = Math.pow(2, t.retryCount) * 2000;
+            isReady = true;
+        } else if (t.status === 'retrying') {
+            // Exponential backoff check with 5 minutes (300,000ms) maximum delay cap
+            const backoffMs = Math.min(Math.pow(2, t.retryCount) * 2000, 300000);
             if (now - t.updatedAt.getTime() >= backoffMs) {
+                isReady = true;
+            }
+        }
+
+        if (isReady) {
+            // Concurrency safety: serialize transactions per smart account to prevent nonce collisions
+            const activeJob = await TransactionModel.findOne({
+                status: { $in: ['processing', 'submitted'] },
+                chainId: t.chainId,
+                accountId: t.accountId
+            });
+
+            if (!activeJob) {
                 targetTx = t;
-                break;
+                break; // Found a ready transaction on an idle account!
             }
         }
     }
 
     if (!targetTx) return;
-
-    // Concurrency safety: serialize transactions per smart account to prevent nonce collisions
-    const activeJob = await TransactionModel.findOne({
-        status: { $in: ['processing', 'submitted'] },
-        chainId: targetTx.chainId,
-        accountId: targetTx.accountId
-    });
-
-    if (activeJob) {
-        // Skip for now to preserve sequence execution order
-        return;
-    }
 
     // Atomically claim the transaction job
     const tx = await TransactionModel.findOneAndUpdate(
@@ -125,7 +187,7 @@ async function processQueue() {
             $set: {
                 status: 'processing',
                 startedAt: new Date(),
-                workerId: 'worker-node-1',
+                workerId: workerInstanceId,
                 updatedAt: new Date()
             }
         },
@@ -133,7 +195,86 @@ async function processQueue() {
     );
 
     if (tx) {
-        logger.info(`Processing transaction job ${tx.id} for user ${tx.userId}`);
-        await executeTransactionOnChain(tx);
+        logger.info(`Processing transaction job ${tx.id} for user ${tx.userId} under worker ${workerInstanceId}`);
+        isProcessingJob = true;
+        try {
+            await executeTransactionOnChain(tx);
+        } finally {
+            isProcessingJob = false;
+        }
+    }
+}
+
+async function recoverStaleJobs() {
+    logger.info('🔍 Running stale transaction job recovery check...');
+
+    // 1. Recover processing jobs stuck for more than 5 minutes (e.g. worker process crashed)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    try {
+        const staleProcessing = await TransactionModel.updateMany(
+            { 
+                status: 'processing',
+                updatedAt: { $lt: fiveMinutesAgo }
+            },
+            { 
+                $set: { 
+                    status: 'queued', 
+                    failureReason: 'Recovered stuck processing transaction (heartbeat timeout)' 
+                } 
+            }
+        );
+        if (staleProcessing.modifiedCount > 0) {
+            logger.warn(`🔄 Recovered ${staleProcessing.modifiedCount} stuck processing jobs.`);
+        }
+    } catch (err) {
+        logger.error('Failed to recover stale processing jobs', err as Error);
+    }
+
+    // 2. Recover stuck submitted transactions by querying their status via the bundler
+    await recoverSubmittedTransactions();
+}
+
+async function recoverSubmittedTransactions() {
+    try {
+        const submittedTxs = await TransactionModel.find({ status: 'submitted' });
+        if (submittedTxs.length === 0) return;
+
+        logger.info(`🔄 Found ${submittedTxs.length} stuck submitted transactions. Resolving...`);
+        for (const tx of submittedTxs) {
+            try {
+                if (!tx.userOpHash) {
+                    tx.status = 'queued';
+                    tx.failureReason = 'Recovered missing hash on worker audit';
+                    await tx.save();
+                    continue;
+                }
+
+                // Query the status via the bundler
+                const result = await bundlerProvider.getUserOperation(tx.userOpHash as `0x${string}`, tx.chainId, tx.bundlerID || 'ALCHEMY').catch(() => null);
+
+                if (result && result.status === 'confirmed') {
+                    tx.status = 'confirmed';
+                    tx.hash = result.receipts?.[0]?.transactionHash || tx.hash;
+                    tx.completedAt = new Date();
+                    await tx.save();
+                    logger.info(`✅ Resolved stuck transaction ${tx.id} to confirmed status`);
+                } else if (result && result.status === 'failed') {
+                    tx.status = 'failed';
+                    tx.failureReason = 'UserOperation failed on-chain (recovered on restart)';
+                    tx.completedAt = new Date();
+                    await tx.save();
+                    logger.info(`❌ Resolved stuck transaction ${tx.id} to failed status`);
+                } else {
+                    tx.status = 'queued';
+                    tx.failureReason = 'Reset stuck submitted transaction on worker restart';
+                    await tx.save();
+                    logger.info(`🔄 Reset stuck submitted transaction ${tx.id} back to queued`);
+                }
+            } catch (err) {
+                logger.error(`Failed to recover submitted transaction ${tx.id}`, err as Error);
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to run submitted queue crash recovery', error as Error);
     }
 }

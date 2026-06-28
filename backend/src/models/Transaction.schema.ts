@@ -29,6 +29,7 @@ export interface ITransaction extends Document {
     workerId?: string;
     rpcEndpoint?: string;
     idempotencyKey?: string;
+    sessionKeyAddress?: string;
     calls?: {
         to: string;
         value: string;
@@ -134,6 +135,11 @@ const transactionSchema = new Schema<ITransaction>({
         type: String,
         unique: true,
         sparse: true
+    },
+    sessionKeyAddress: {
+        type: String,
+        required: false,
+        lowercase: true
     },
     calls: {
         type: [{

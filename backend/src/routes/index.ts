@@ -14,6 +14,8 @@ import {
     validateBody,
     registerSchema,
     loginSchema,
+    refreshSchema,
+    revokeSessionSchema,
     createAccountSchema,
     deployAccountSchema,
     sendTransactionSchema,
@@ -33,7 +35,7 @@ import * as portfolioController from '../controllers/portfolio.controller';
 import * as notificationController from '../controllers/notification.controller';
 import {upload} from "../middleware/upload.middleware";
 
-const router = Router();
+const router: Router = Router();
 
 // Health & Operational Metrics Routes (Public with Rate Limiting)
 router.get('/health', healthRateLimiter, healthController.health);
@@ -50,7 +52,10 @@ router.post('/capabilities/validate', healthRateLimiter, validateBody(validateCo
 router.post('/auth/register', authRateLimiter, validateBody(registerSchema), authController.register);
 router.post('/auth/login', authRateLimiter, validateBody(loginSchema), authController.login);
 router.post('/auth/logout', authController.logout);
+router.post('/auth/refresh', authRateLimiter, validateBody(refreshSchema), authController.refresh);
 router.get('/auth/status', authController.getStatus);
+router.get('/auth/sessions', requireAuth, authController.getSessions);
+router.post('/auth/sessions/revoke', requireAuth, validateBody(revokeSessionSchema), authController.revokeSessionEndpoint);
 
 // Smart Account Routes (Protected with Wallet Creation Rate Limiting)
 router.post('/accounts/create', requireAuth, walletRateLimiter, validateBody(createAccountSchema), accountController.createSmartAccount);
@@ -69,12 +74,7 @@ router.get('/sessions', requireAuth, sessionKeyController.getSessionKeys);
 router.post('/sessions/revoke', requireAuth, walletRateLimiter, validateBody(revokeSessionKeySchema), sessionKeyController.revokeSessionKey);
 router.post('/sessions/validate', requireAuth, validateBody(validateSessionKeySchema), sessionKeyController.validateSessionKey);
 
-// REST Session Key Routes (Sprint 5)
-router.post('/session-keys', requireAuth, walletRateLimiter, validateBody(createSessionKeySchema), sessionKeyController.createSessionKey);
-router.get('/session-keys', requireAuth, sessionKeyController.getSessionKeysREST);
-router.get('/session-keys/:id', requireAuth, sessionKeyController.getSessionKeyByIdREST);
-router.patch('/session-keys/:id', requireAuth, sessionKeyController.updateSessionKeyREST);
-router.delete('/session-keys/:id', requireAuth, sessionKeyController.deleteSessionKeyREST);
+
 
 // Transaction Routes (Protected with specialized Rate Limiters & Schema Validations)
 router.post('/transactions/deploy', requireAuth, deployRateLimiter, validateBody(deployAccountSchema), transactionController.deploySmartWallet);

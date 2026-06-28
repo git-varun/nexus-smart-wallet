@@ -21,6 +21,7 @@ export interface SmartAccountInfo {
     nonce?: number
     createdAt: string
     updatedAt: string
+    signerAddress?: string
 }
 
 export interface UserOperation {

@@ -71,6 +71,7 @@ export interface TransactionRequest {
     value?: string | bigint;
     version?: AAVersion; // Optional AA version preference
     idempotencyKey?: string;
+    sessionKeyAddress?: string;
 }
 
 export interface TransactionInfo {
