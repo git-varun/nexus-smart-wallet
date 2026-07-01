@@ -5,7 +5,6 @@ import { apiClient, GasEstimate } from '@/services/apiClient';
 import { useToast } from '@/shared/hooks/useToast';
 import { useBackendSmartAccount } from '@/entities/wallet/hooks/useBackendSmartAccount';
 import { QUERY_KEYS, QUERY_TIMES, MUTATION_KEYS } from '@/shared/lib/reactQuery';
-import { toTransaction } from '../model/adapter';
 
 export interface TransactionHistoryItem {
     id?: string;
@@ -72,10 +71,8 @@ export function useTransactionHistoryBackend(filters: {
             
             const response = await apiClient.getTransactionHistory(token, reqFilters);
             if (response.success && response.data) {
-                const mapped = response.data.transactions.map(toTransaction) as TransactionHistoryItem[];
-                
                 return {
-                    transactions: mapped,
+                    transactions: response.data.transactions as TransactionHistoryItem[],
                     pagination: response.data.pagination
                 };
             }
@@ -223,7 +220,7 @@ export function useTransactionHistoryBackend(filters: {
         if (params) {
             const res = await apiClient.getTransactionHistory(token || '', params);
             if (res.success && res.data) {
-                const mapped = res.data.transactions.map(toTransaction) as TransactionHistoryItem[];
+                const mapped = res.data.transactions as TransactionHistoryItem[];
                 queryClient.setQueryData(queryKey, mapped);
                 return mapped;
             }

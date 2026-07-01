@@ -378,7 +378,7 @@ export async function getOperationStatus(req: AuthenticatedRequest, res: Respons
         if (result.success) {
             res.status(200).json({
                 success: true,
-                data: result.receipts
+                data: { receipts: result.receipts }
             })
         } else {
             res.status(400).json({

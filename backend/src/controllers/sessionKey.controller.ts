@@ -107,7 +107,7 @@ export async function getSessionKeys(req: AuthenticatedRequest, res: Response): 
         );
 
         if (result.success) {
-            res.status(200).json({ success: true, data: result.data });
+            res.status(200).json({ success: true, data: { sessionKeys: result.data } });
         } else {
             res.status(400).json({ success: false, error: { code: "SESSION_KEYS_RETRIEVAL_FAILED", message: result.error } });
         }

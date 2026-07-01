@@ -24,7 +24,7 @@ export function useCapabilities() {
         queryFn: async () => {
             const response = await apiClient.getCapabilities();
             if (response.success && response.data) {
-                return response.data as Capabilities;
+                return response.data;
             }
             throw new Error(response.error?.message || 'Failed to fetch capabilities');
         },

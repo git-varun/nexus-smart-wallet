@@ -1,6 +1,7 @@
-/* eslint-disable react-refresh/only-export-components */
+// src/entities/capability/model/CapabilityContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useToast } from '@/shared/hooks/useToast';
+import { useBackendSmartAccount } from '@/entities/wallet/hooks/useBackendSmartAccount';
 
 export interface NotificationItem {
     id: string;
@@ -25,18 +26,28 @@ const NotificationContext = createContext<NotificationContextProps | undefined>(
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
     const { toast } = useToast();
+    const { user } = useBackendSmartAccount();
+
+    const userId = user?.id;
+    const storageKey = userId ? `nexus-notifications-inbox-${userId}` : 'nexus-notifications-inbox';
 
     // Load initial notifications from localStorage
     useEffect(() => {
-        const stored = localStorage.getItem('nexus-notifications-inbox');
+        if (!userId) {
+            setNotifications([]);
+            return;
+        }
+        const stored = localStorage.getItem(storageKey);
         if (stored) {
             try {
                 setNotifications(JSON.parse(stored));
             } catch (err) {
                 console.error('Failed to parse notifications from storage:', err);
             }
+        } else {
+            setNotifications([]);
         }
-    }, []);
+    }, [userId, storageKey]);
 
 
     const addNotification = (newItem: Omit<NotificationItem, 'id' | 'timestamp' | 'read'>) => {
@@ -60,7 +71,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         // Keep only latest 100 entries to prevent localstorage bloat
         setNotifications(prev => {
             const updated = [notification, ...prev].slice(0, 100);
-            localStorage.setItem('nexus-notifications-inbox', JSON.stringify(updated));
+            localStorage.setItem(storageKey, JSON.stringify(updated));
             return updated;
         });
     };
@@ -68,14 +79,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const markAllAsRead = () => {
         setNotifications(prev => {
             const updated = prev.map(item => ({ ...item, read: true }));
-            localStorage.setItem('nexus-notifications-inbox', JSON.stringify(updated));
+            localStorage.setItem(storageKey, JSON.stringify(updated));
             return updated;
         });
     };
 
     const clearNotifications = () => {
         setNotifications([]);
-        localStorage.removeItem('nexus-notifications-inbox');
+        localStorage.removeItem(storageKey);
     };
 
     const unreadCount = notifications.filter(item => !item.read).length;

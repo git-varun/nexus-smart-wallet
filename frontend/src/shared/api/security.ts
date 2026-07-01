@@ -1,36 +1,59 @@
 // src/shared/api/security.ts
 import { apiClient, ApiResponse } from './client';
+import { object, optional, SessionKeyDto, sessionKeyDto, string, boolean } from './contracts';
 
-export async function createSessionKey(data: any, token?: string): Promise<ApiResponse<any>> {
+export interface CreateSessionKeyRequest {
+    ownerAddress: string;
+    publicKey: string;
+    chainId: number;
+    permissions: Array<{ target: string; allowedFunctions: string[]; spendingLimit: string }>;
+    expiresAt?: string;
+    signature?: string;
+}
+
+export async function createSessionKey(
+    data: CreateSessionKeyRequest,
+    token?: string
+): Promise<ApiResponse<SessionKeyDto>> {
     const headers: Record<string, string> = {};
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    return apiClient.request<any>('/api/sessions/create', {
+    return apiClient.request<SessionKeyDto>('/api/sessions/create', {
         method: 'POST',
         headers,
         body: JSON.stringify(data),
-    });
+    }, sessionKeyDto);
 }
 
-export async function getSessionKeys(chainId: number, ownerAddress: string, token?: string): Promise<ApiResponse<any[]>> {
+const sessionKeyList = (value: unknown, path = 'data'): asserts value is { sessionKeys: SessionKeyDto[] } => {
+    const payload = object(value, path);
+    if (!Array.isArray(payload.sessionKeys)) throw new Error(`${path}.sessionKeys must be an array`);
+    payload.sessionKeys.forEach((item, index) => sessionKeyDto(item, `${path}.sessionKeys[${index}]`));
+};
+
+export async function getSessionKeys(chainId: number, ownerAddress: string, token?: string): Promise<ApiResponse<{ sessionKeys: SessionKeyDto[] }>> {
     const headers: Record<string, string> = {};
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    return apiClient.request<any[]>(`/api/sessions?chainId=${chainId}&ownerAddress=${encodeURIComponent(ownerAddress)}`, { headers });
+    return apiClient.request<{ sessionKeys: SessionKeyDto[] }>(
+        `/api/sessions?chainId=${chainId}&ownerAddress=${encodeURIComponent(ownerAddress)}`,
+        { headers },
+        sessionKeyList
+    );
 }
 
-export async function revokeSessionKey(publicKey: string, token?: string): Promise<ApiResponse<any>> {
+export async function revokeSessionKey(publicKey: string, token?: string): Promise<ApiResponse<SessionKeyDto>> {
     const headers: Record<string, string> = {};
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    return apiClient.request<any>('/api/sessions/revoke', {
+    return apiClient.request<SessionKeyDto>('/api/sessions/revoke', {
         method: 'POST',
         headers,
         body: JSON.stringify({ publicKey }),
-    });
+    }, sessionKeyDto);
 }
 
 export async function validateSessionKey(
@@ -39,12 +62,12 @@ export async function validateSessionKey(
     functionSelector?: string,
     value?: string,
     token?: string
-): Promise<ApiResponse<{ isValid: boolean }>> {
+): Promise<ApiResponse<{ isValid: boolean; error?: string }>> {
     const headers: Record<string, string> = {};
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    return apiClient.request<{ isValid: boolean }>('/api/sessions/validate', {
+    return apiClient.request<{ isValid: boolean; error?: string }>('/api/sessions/validate', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -53,5 +76,9 @@ export async function validateSessionKey(
             functionSelector: functionSelector || '0x00000000',
             value: value || '0'
         }),
+    }, (value, path = 'data'): asserts value is { isValid: boolean; error?: string } => {
+        const payload = object(value, path);
+        boolean(payload.isValid, `${path}.isValid`);
+        optional(payload.error, string, `${path}.error`);
     });
 }

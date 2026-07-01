@@ -5,7 +5,8 @@ import { getRedisClient, isRedisAvailable } from "./redis.service";
 import Redis from "ioredis";
 import { NotificationEventModel } from "../models";
 
-const logger = createServiceLogger("NotificationService");
+const logger = createServiceLogger("Notification");
+const sseLogger = createServiceLogger("SSE");
 const REDIS_CHANNEL = "notifications:publish";
 
 interface Client {
@@ -20,7 +21,11 @@ class NotificationService {
     private initializedSub = false;
     private heartbeatInterval: NodeJS.Timeout | null = null;
 
-    constructor() {
+    constructor() {}
+
+    public initialize() {
+        if (this.heartbeatInterval) return;
+        sseLogger.info("Started");
         this.initializeRedisSubscription();
         this.startHeartbeatTimer();
     }
@@ -29,17 +34,17 @@ class NotificationService {
         if (!config.redis.enabled || this.initializedSub) return;
 
         try {
-            logger.info("Initializing Redis Pub/Sub subscriber client...");
+            logger.debug("Initializing Redis Pub/Sub subscriber client...");
             this.subClient = new Redis(config.redis.uri, {
                 maxRetriesPerRequest: null,
                 retryStrategy: (times) => Math.min(times * 100, 3000)
             });
 
             this.subClient.on("ready", async () => {
-                logger.info("✅ Redis Notification Subscriber ready and listening");
+                logger.debug("Redis Notification Subscriber ready and listening");
                 try {
                     await this.subClient!.subscribe(REDIS_CHANNEL);
-                    logger.info(`Subscribed to Redis channel: ${REDIS_CHANNEL}`);
+                    logger.debug(`Subscribed to Redis channel: ${REDIS_CHANNEL}`);
                 } catch (err) {
                     logger.error(`Failed to subscribe to Redis channel ${REDIS_CHANNEL}:`, err as Error);
                 }
@@ -57,12 +62,12 @@ class NotificationService {
             });
 
             this.subClient.on("error", (error) => {
-                logger.error("❌ Redis Notification Subscriber error:", error);
+                logger.error("Redis Notification Subscriber error:", error);
             });
 
             this.initializedSub = true;
         } catch (err) {
-            logger.error("❌ Failed to initialize Redis notification subscriber:", err as Error);
+            logger.error("Failed to initialize Redis notification subscriber:", err as Error);
         }
     }
 
@@ -78,14 +83,14 @@ class NotificationService {
                     client.res.write(`event: heartbeat\ndata: ${JSON.stringify({ type: "heartbeat", timestamp: new Date().toISOString() })}\n\n`);
                     client.lastSeen = now;
                 } catch {
-                    logger.warn(`Stale SSE connection detected for user ${client.userId}. Cleaning up...`);
+                    logger.debug(`Stale SSE connection detected for user ${client.userId}. Cleaning up...`);
                     deadClients.push(client);
                 }
             }
 
             if (deadClients.length > 0) {
                 this.clients = this.clients.filter(c => !deadClients.includes(c));
-                logger.info(`Cleaned up ${deadClients.length} orphaned/stale SSE connections. Active remaining: ${this.clients.length}`);
+                logger.debug(`Cleaned up ${deadClients.length} orphaned/stale SSE connections. Active remaining: ${this.clients.length}`);
             }
         }, 15000);
     }
@@ -98,7 +103,8 @@ class NotificationService {
 
         const client: Client = { userId, res, lastSeen: Date.now() };
         this.clients.push(client);
-        logger.info(`Client subscribed to notifications`, { userId, totalClients: this.clients.length });
+        sseLogger.info("Client connected");
+        logger.debug(`Client subscribed to notifications`, { userId, totalClients: this.clients.length });
 
         // Send a connected confirmation event
         res.write(`event: connected\ndata: ${JSON.stringify({ type: "connected", userId })}\n\n`);
@@ -119,7 +125,7 @@ class NotificationService {
                         }).sort({ timestamp: 1 });
 
                         if (missedEvents.length > 0) {
-                            logger.info(`Replaying ${missedEvents.length} missed events for user ${userId} since ${lastEventId}`);
+                            logger.debug(`Replaying ${missedEvents.length} missed events for user ${userId} since ${lastEventId}`);
                             for (const event of missedEvents) {
                                 res.write(`id: ${event.eventId}\nevent: message\ndata: ${JSON.stringify({
                                     id: event.eventId,
@@ -143,7 +149,8 @@ class NotificationService {
 
         req.on("close", () => {
             this.clients = this.clients.filter(c => c.res !== res);
-            logger.info(`Client unsubscribed from notifications`, { userId, totalClients: this.clients.length });
+            sseLogger.info("Client disconnected");
+            logger.debug(`Client unsubscribed from notifications`, { userId, totalClients: this.clients.length });
         });
     }
 
@@ -189,7 +196,7 @@ class NotificationService {
         };
 
         const targetClients = this.clients.filter(c => c.userId === userId);
-        logger.info(`Sending local notification to user`, { userId, eventType, matchingClients: targetClients.length });
+        logger.debug(`Sending local notification to user`, { userId, eventType, matchingClients: targetClients.length });
 
         for (const client of targetClients) {
             try {
@@ -210,7 +217,7 @@ class NotificationService {
             await this.subClient.quit().catch(() => this.subClient?.disconnect());
             this.subClient = null;
             this.initializedSub = false;
-            logger.info("🛑 Redis Notification Subscriber shutdown complete");
+            logger.debug("Redis Notification Subscriber shutdown complete");
         }
     }
 }

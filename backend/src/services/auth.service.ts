@@ -184,7 +184,25 @@ export async function rotateSession(
     userAgent?: string,
     ipAddress?: string
 ): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
-    const session = await UserSessionModel.findOne({ refreshToken: oldRefreshToken, isRevoked: false });
+    const newRefreshToken = generateRefreshToken();
+    const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Extended by 30 days
+
+    const updateFields: any = {
+        refreshToken: newRefreshToken,
+        expiresAt: newExpiresAt
+    };
+    if (userAgent) updateFields.userAgent = userAgent;
+    if (ipAddress) updateFields.ipAddress = ipAddress;
+
+    // Perform atomic update to prevent race conditions
+    const session = await UserSessionModel.findOneAndUpdate(
+        { refreshToken: oldRefreshToken, isRevoked: false, expiresAt: { $gt: new Date() } },
+        { 
+            $set: updateFields,
+            $push: { usedRefreshTokens: oldRefreshToken }
+        },
+        { new: true }
+    );
 
     if (!session) {
         // Replay detection: check if this refresh token was already rotated previously
@@ -198,23 +216,6 @@ export async function rotateSession(
         }
         throw new Error('Invalid or expired refresh token');
     }
-
-    if (session.expiresAt.getTime() <= Date.now()) {
-        session.isRevoked = true;
-        await session.save();
-        throw new Error('Refresh token has expired');
-    }
-
-    const newRefreshToken = generateRefreshToken();
-    const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Extended by 30 days
-
-    session.usedRefreshTokens.push(oldRefreshToken);
-    session.refreshToken = newRefreshToken;
-    session.expiresAt = newExpiresAt;
-    if (userAgent) session.userAgent = userAgent;
-    if (ipAddress) session.ipAddress = ipAddress;
-
-    await session.save();
 
     const user = await userRepository.findById(session.userId.toString());
     const accessToken = generateAccessToken(session.userId.toString(), user?.email);

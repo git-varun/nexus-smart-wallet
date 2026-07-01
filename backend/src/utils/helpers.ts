@@ -3,13 +3,16 @@ import {keccak256, toBytes} from "viem";
 import {ALCHEMY_CHAIN_MAP} from "../config/chain";
 import {custodialSigner} from "../services/signer.service";
 import {rpcProvider} from "../services/provider.service";
+import {createServiceLogger} from "./logger";
+
+const logger = createServiceLogger('Nexus');
 
 export async function signMessage(hash: `0x${string}`) {
     return custodialSigner.signMessage(hash);
 }
 
 export function getRPC_URL(chainId: string | number, provider?: string) {
-    console.log(`getRPC_URL: ${chainId}, provider: ${provider}`);
+    logger.debug(`getRPC_URL: ${chainId}, provider: ${provider}`);
     if (provider === "PIMLICO") return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${config.pimlico.apiKey}`;
     if (provider === "ALCHEMY" || !provider) return `https://${ALCHEMY_CHAIN_MAP[Number(chainId) as keyof typeof ALCHEMY_CHAIN_MAP]}.g.alchemy.com/v2/${config.alchemy.apiKey}`;
     return `https://${provider}${chainId}`;

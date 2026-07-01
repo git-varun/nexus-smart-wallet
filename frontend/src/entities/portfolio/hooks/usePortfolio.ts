@@ -3,7 +3,6 @@ import { useBackendSmartAccount } from '@/entities/wallet/hooks/useBackendSmartA
 import { useToast } from '@/shared/hooks/useToast';
 import { apiClient } from '@/services/apiClient';
 import { QUERY_KEYS, QUERY_TIMES, MUTATION_KEYS } from '@/shared/lib/reactQuery';
-import { toPortfolio } from '../model/adapter';
 
 export function usePortfolio() {
     const { smartAccountAddress, token, currentChainId } = useBackendSmartAccount();
@@ -18,7 +17,7 @@ export function usePortfolio() {
             if (!smartAccountAddress || !token) return { assets: [], totalValueUsd: 0 };
             const response = await apiClient.getPortfolio(token, smartAccountAddress, currentChainId);
             if (response.success && response.data) {
-                return toPortfolio(response.data);
+                return response.data;
             }
             throw new Error(response.error?.message || 'Failed to fetch portfolio');
         },
@@ -35,7 +34,7 @@ export function usePortfolio() {
             if (!smartAccountAddress || !token) throw new Error('Unauthenticated');
             const response = await apiClient.refreshPortfolio(token, smartAccountAddress, currentChainId);
             if (response.success && response.data) {
-                return toPortfolio(response.data);
+                return response.data;
             }
             throw new Error(response.error?.message || 'Failed to refresh portfolio');
         },

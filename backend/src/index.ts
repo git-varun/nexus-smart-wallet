@@ -6,52 +6,57 @@ import {startWorker, stopWorker} from './services/worker.service';
 import {initializeRedis, closeRedis} from './services/redis.service';
 import {notificationService} from './services/notification.service';
 
-const logger = createServiceLogger('Server');
+const logger = createServiceLogger('Nexus');
 
 async function startServer() {
     try {
         const PORT = config.port || 3000;
 
-        // Initialize Redis
-        initializeRedis();
+        logger.info('Starting');
 
         // Initialize database
         await initializeDatabase();
+
+        // Initialize Redis
+        initializeRedis();
+
+        // Initialize notification service
+        notificationService.initialize();
 
         // Create and start app
         const app = await createApp();
 
         const server = app.listen(PORT, async () => {
-            logger.info(`🚀 Server running on port ${PORT}`);
-            logger.info(`🔗 API: http://localhost:${PORT}`);
-            logger.info(`🏥 Health: http://localhost:${PORT}/health`);
-            logger.info(`📖 Docs: http://localhost:${PORT}/`);
+            const apiLogger = createServiceLogger('API');
+            apiLogger.info(`Listening on :${PORT}`);
             
             // Start queue worker
             await startWorker();
+
+            logger.info('Ready');
         });
 
         // Graceful shutdown
         const shutdown = async () => {
-            logger.info('🔄 Shutting down gracefully...');
+            logger.info('Shutdown initiated');
 
             server.close(async () => {
                 try {
                     await stopWorker();
+                    await closeRedis();
                     await closeDatabase();
                     await notificationService.shutdown();
-                    await closeRedis();
-                    logger.info('✅ Server stopped');
+                    logger.info('Shutdown complete');
                     process.exit(0);
                 } catch (error) {
-                    logger.error('❌ Shutdown error', error instanceof Error ? error : new Error(String(error)));
+                    logger.error('Shutdown error', error instanceof Error ? error : new Error(String(error)));
                     process.exit(1);
                 }
             });
 
             // Force exit after 5 seconds
             setTimeout(() => {
-                logger.error('❌ Forced shutdown');
+                logger.error('Forced shutdown');
                 process.exit(1);
             }, 5000);
         };
@@ -62,17 +67,17 @@ async function startServer() {
 
         // Error handlers
         process.on('uncaughtException', (error) => {
-            logger.error('💥 Uncaught Exception', error);
+            logger.error('Uncaught Exception', error);
             process.exit(1);
         });
 
         process.on('unhandledRejection', (reason) => {
-            logger.error('💥 Unhandled Rejection', reason instanceof Error ? reason : new Error(String(reason)));
+            logger.error('Unhandled Rejection', reason instanceof Error ? reason : new Error(String(reason)));
             process.exit(1);
         });
 
     } catch (error) {
-        logger.error('❌ Failed to start server', error instanceof Error ? error : new Error(String(error)));
+        logger.error('Failed to start server', error instanceof Error ? error : new Error(String(error)));
         process.exit(1);
     }
 }

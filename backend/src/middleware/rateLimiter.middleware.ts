@@ -1,6 +1,9 @@
 import {Request, Response, NextFunction} from 'express';
 import {config} from '../config/config';
 import {getRedisClient, isRedisAvailable} from '../services/redis.service';
+import {createServiceLogger} from '../utils';
+
+const logger = createServiceLogger('Redis');
 
 interface RateLimitStoreEntry {
     count: number;
@@ -73,7 +76,7 @@ export function createRateLimiter(options: RateLimitOptions) {
                 }
             } catch (err) {
                 // Connection failed - fallback to in-memory store
-                console.error("Redis rate limiter error, falling back to local memory store:", err);
+                logger.error("Redis rate limiter error, falling back to local memory store", err instanceof Error ? err : new Error(String(err)));
                 const result = runFallbackLimiter(key, options, now);
                 currentCount = result.count;
                 resetTime = result.resetTime;

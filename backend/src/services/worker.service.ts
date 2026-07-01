@@ -2,12 +2,12 @@ import {TransactionModel} from '../models';
 import {executeTransactionOnChain} from './transaction.service';
 import {reconcileAllAccountsDeploymentStatus} from './account.service';
 import {runBackgroundPortfolioSync} from './portfolio.service';
-import {createServiceLogger} from '../utils';
+import {createServiceLogger, logContextStorage} from '../utils';
 import {bundlerProvider} from './provider.service';
 import crypto from 'crypto';
 import {getRedisClient} from './redis.service';
 
-const logger = createServiceLogger('QueueWorker');
+const logger = createServiceLogger('Queue');
 let running = false;
 let isProcessingJob = false;
 const workerInstanceId = `worker-${crypto.randomUUID().substring(0, 8)}`;
@@ -41,7 +41,7 @@ async function writeHeartbeat() {
 export async function startWorker() {
     if (running) return;
     running = true;
-    logger.info(`🚀 Transaction Queue Worker starting with ID: ${workerInstanceId}`);
+    logger.info('Started');
 
     // Initial crash recovery path: Reset stuck processing transactions back to queued on crash restart
     try {
@@ -50,7 +50,7 @@ export async function startWorker() {
             { $set: { status: 'queued', failureReason: 'Recovered after worker restart' } }
         );
         if (recovered.modifiedCount > 0) {
-            logger.info(`🔄 Recovered ${recovered.modifiedCount} stuck processing jobs.`);
+            logger.debug(`Recovered ${recovered.modifiedCount} stuck processing jobs.`);
         }
     } catch (err) {
         logger.error('Failed to run queue crash recovery', err as Error);
@@ -137,7 +137,7 @@ export async function stopWorker() {
         }
     }
 
-    logger.info('🛑 Transaction Queue Worker stopped');
+    logger.info('Stopped');
 }
 
 async function processQueue() {
@@ -195,10 +195,19 @@ async function processQueue() {
     );
 
     if (tx) {
-        logger.info(`Processing transaction job ${tx.id} for user ${tx.userId} under worker ${workerInstanceId}`);
+        const context = {
+            requestId: tx.requestId,
+            transactionId: tx.id || String(tx._id),
+            userId: tx.userId,
+            accountId: tx.accountId,
+            chainId: tx.chainId
+        };
         isProcessingJob = true;
         try {
-            await executeTransactionOnChain(tx);
+            await logContextStorage.run(context, async () => {
+                logger.info(`Processing ${tx.id || tx._id}`);
+                await executeTransactionOnChain(tx);
+            });
         } finally {
             isProcessingJob = false;
         }
@@ -206,7 +215,7 @@ async function processQueue() {
 }
 
 async function recoverStaleJobs() {
-    logger.info('🔍 Running stale transaction job recovery check...');
+    logger.debug('Running stale transaction job recovery check');
 
     // 1. Recover processing jobs stuck for more than 5 minutes (e.g. worker process crashed)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
@@ -224,7 +233,7 @@ async function recoverStaleJobs() {
             }
         );
         if (staleProcessing.modifiedCount > 0) {
-            logger.warn(`🔄 Recovered ${staleProcessing.modifiedCount} stuck processing jobs.`);
+            logger.debug(`Recovered ${staleProcessing.modifiedCount} stuck processing jobs.`);
         }
     } catch (err) {
         logger.error('Failed to recover stale processing jobs', err as Error);
@@ -239,7 +248,7 @@ async function recoverSubmittedTransactions() {
         const submittedTxs = await TransactionModel.find({ status: 'submitted' });
         if (submittedTxs.length === 0) return;
 
-        logger.info(`🔄 Found ${submittedTxs.length} stuck submitted transactions. Resolving...`);
+        logger.debug(`Found ${submittedTxs.length} stuck submitted transactions. Resolving...`);
         for (const tx of submittedTxs) {
             try {
                 if (!tx.userOpHash) {
@@ -257,18 +266,18 @@ async function recoverSubmittedTransactions() {
                     tx.hash = result.receipts?.[0]?.transactionHash || tx.hash;
                     tx.completedAt = new Date();
                     await tx.save();
-                    logger.info(`✅ Resolved stuck transaction ${tx.id} to confirmed status`);
+                    logger.info('Transaction confirmed', { txId: tx.id });
                 } else if (result && result.status === 'failed') {
                     tx.status = 'failed';
                     tx.failureReason = 'UserOperation failed on-chain (recovered on restart)';
                     tx.completedAt = new Date();
                     await tx.save();
-                    logger.info(`❌ Resolved stuck transaction ${tx.id} to failed status`);
+                    logger.info('Transaction failed', { txId: tx.id, reason: tx.failureReason });
                 } else {
                     tx.status = 'queued';
                     tx.failureReason = 'Reset stuck submitted transaction on worker restart';
                     await tx.save();
-                    logger.info(`🔄 Reset stuck submitted transaction ${tx.id} back to queued`);
+                    logger.debug(`Reset stuck submitted transaction ${tx.id} back to queued`);
                 }
             } catch (err) {
                 logger.error(`Failed to recover submitted transaction ${tx.id}`, err as Error);

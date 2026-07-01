@@ -6,6 +6,7 @@ import { apiClient } from '@/services/apiClient';
 import { QUERY_KEYS } from '@/shared/lib/reactQuery';
 import { recordError } from '@/shared/api/client';
 import { toAppNotification } from '../model/adapter';
+import { parseNotificationEvent } from '@/shared/api/notification';
 
 export interface SseEvent {
     id: string;
@@ -122,7 +123,7 @@ export function useNotifications() {
             eventSource.addEventListener('message', (event) => {
                 resetHeartbeatTimeout();
                 try {
-                    const message = JSON.parse(event.data);
+                    const message = parseNotificationEvent(JSON.parse(event.data));
                     
                     // Store the last received event ID to allow event replay on reconnect
                     if (event.lastEventId) {
@@ -140,7 +141,7 @@ export function useNotifications() {
                         case 'transaction.failed':
                         case 'transaction.retry_started':
                         case 'session.expired':
-                        case 'sponsorship.rejected': {
+                        {
                             const appNotification = toAppNotification(type, payload);
                             addNotification({
                                 type,
@@ -151,8 +152,6 @@ export function useNotifications() {
                             invalidateCaches(type);
                             if (type === 'transaction.failed') {
                                 recordError('API', `Transaction execution failed: ${payload.error || 'Unknown error'}`, 'TRANSACTION_FAILED');
-                            } else if (type === 'sponsorship.rejected') {
-                                recordError('Capability', `Paymaster rejected gas sponsorship: ${payload.error}`, 'SPONSORED_TRANSACTION_REJECTED');
                             }
                             break;
                         }
@@ -161,6 +160,17 @@ export function useNotifications() {
                     }
                 } catch (err) {
                     console.error('Failed to parse notification SSE message:', err);
+                    recordError(
+                        'SSE',
+                        err instanceof Error ? err.message : 'Invalid notification event payload',
+                        'SSE_CONTRACT_VIOLATION'
+                    );
+                    addNotification({
+                        type: 'notification.error',
+                        title: 'Notification Error',
+                        description: 'A server notification could not be processed.',
+                        variant: 'error'
+                    });
                 }
             });
 

@@ -1,6 +1,9 @@
 import {config} from '../config/config';
 import {Address, hexToNumber, toHex} from "viem";
 import {UserOperation} from "viem/account-abstraction";
+import {createServiceLogger} from "../utils";
+
+const logger = createServiceLogger('Bundler');
 
 // ==================== SIMPLE POC REQUEST FUNCTIONS ====================
 
@@ -19,7 +22,7 @@ const makePimlicoRequest = async <T>(
         params
     };
 
-    console.log(`Pimlico ${method}:`, params);
+    logger.debug(`Pimlico ${method}`, params);
 
     const response = await fetch(url, {
         method: 'POST',

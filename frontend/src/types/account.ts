@@ -1,28 +1,9 @@
-// frontend/src/types/account.ts
-export interface User {
-    id: string;
-    email: string;
-    username?: string;
-    profileImage?: string;
-    displayName?: string;
-    preferences?: any;
-    createdAt?: string;
-    lastLogin?: string;
-}
-
-export interface SmartAccountInfo {
-    id: string
-    address: string
-    chainId: number
-    isDeployed: boolean
-    walletID: string
-    accountType: string
-    balance?: string
-    nonce?: number
-    createdAt: string
-    updatedAt: string
-    signerAddress?: string
-}
+// Canonical wire DTO aliases. Domain adapters convert nullable/optional API fields
+// into stricter UI models.
+export type {
+    UserDto as User,
+    SmartAccountDto as SmartAccountInfo,
+} from '@/shared/api/contracts';
 
 export interface UserOperation {
     sender: string
@@ -47,6 +28,6 @@ export interface UserOperationReceipt {
     actualGasCost: string
     actualGasUsed: string
     success: boolean
-    logs: any[]
-    receipt: any
+    logs: unknown[]
+    receipt: unknown
 }

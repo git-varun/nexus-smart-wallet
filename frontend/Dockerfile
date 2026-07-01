@@ -11,6 +11,7 @@ COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.node.json tsconfig.app.j
 RUN COREPACK_INTEGRITY_KEYS=0 pnpm install --frozen-lockfile
 
 # Copy source files
+COPY .env ./
 COPY src ./src
 COPY public ./public
 COPY vite.config.ts index.html ./

@@ -118,10 +118,6 @@ export function validateConfig(): void {
 
     // If any validation errors exist, crash startup immediately
     if (errors.length > 0) {
-        console.error('❌ Configuration validation failed:');
-        for (const error of errors) {
-            console.error(`  - ${error}`);
-        }
         throw new Error(`Configuration validation failed: ${errors.join('; ')}`);
     }
 }

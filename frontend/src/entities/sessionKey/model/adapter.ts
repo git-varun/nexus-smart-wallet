@@ -1,5 +1,5 @@
 // src/entities/sessionKey/model/adapter.ts
-import { SessionKey as ApiSessionKey } from '@/services/apiClient';
+import { SessionKeyDto as ApiSessionKey } from '@/shared/api/contracts';
 import { SessionKey } from '@/types/session';
 
 export function toSessionKey(dto: ApiSessionKey): SessionKey {
@@ -12,9 +12,9 @@ export function toSessionKey(dto: ApiSessionKey): SessionKey {
         usedToday: '0',
         lastUsedDay: 0,
         expiryTime: Math.floor(new Date(dto.expiresAt).getTime() / 1000),
-        allowedTargets: dto.permissions.map((p: any) => p.target),
+        allowedTargets: dto.permissions.map(p => p.target),
         isActive: dto.isActive,
-        permissions: dto.permissions.map((p: any) => ({
+        permissions: dto.permissions.map(p => ({
             target: p.target,
             allowedFunctions: p.allowedFunctions,
             spendingLimit: p.spendingLimit

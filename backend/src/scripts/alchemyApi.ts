@@ -3,7 +3,7 @@ import {Address, hexToString, toHex} from "viem";
 import {createServiceLogger, getRPC_URL} from "../utils";
 import {entryPoint07Address} from "viem/account-abstraction";
 
-const logger = createServiceLogger("alchemyWalletApi");
+const logger = createServiceLogger("Bundler");
 const TIMEOUT = 10000;
 
 const makeBundlerRequest = async <T>(
@@ -50,7 +50,7 @@ const makeBundlerRequest = async <T>(
         return data.result;
     } catch (error) {
         clearTimeout(timeoutId);
-        console.error(`${method} failed:`, error);
+        logger.error(`${method} failed`, error instanceof Error ? error : new Error(String(error)));
         throw error;
     }
 };
@@ -63,7 +63,7 @@ export const sendUserOperation = async (
 ) => {
     try {
         const entryPoint = entryPoint07Address;
-        console.log('Sending UserOperation:', userOp.sender);
+        logger.debug('Sending UserOperation', { sender: userOp.sender });
 
         const userOpHash = await makeBundlerRequest<string>(
             'eth_sendUserOperation',
@@ -87,7 +87,7 @@ export const sendUserOperation = async (
 export const getUserOperationByHash = async (
     userOpHash: string
 ) => {
-    console.log('Getting UserOperation by hash:', userOpHash);
+    logger.debug('Getting UserOperation by hash', { userOpHash });
     return await makeBundlerRequest(
         'eth_getUserOperationByHash',
         [userOpHash]
@@ -97,7 +97,7 @@ export const getUserOperationByHash = async (
 export const getUserOperationReceipt = async (
     userOpHash: string
 ) => {
-    console.log('Getting UserOperation receipt:', userOpHash);
+    logger.debug('Getting UserOperation receipt', { userOpHash });
     return await makeBundlerRequest(
         'eth_getUserOperationReceipt',
         [userOpHash]
@@ -118,7 +118,7 @@ export const simulateUserOperation = async (
     userOp: any
 ) => {
     const entryPoint = entryPoint07Address
-    console.log('Simulating UserOperation:', userOp.sender);
+    logger.debug('Simulating UserOperation', { sender: userOp.sender });
 
     return await makeBundlerRequest(
         'eth_simulateUserOperation',
@@ -146,7 +146,7 @@ const makeGasManagerRequest = async <T>(
         params
     };
 
-    console.log(`Making Gas Manager ${method} request`);
+    logger.debug(`Making Gas Manager ${method} request`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
@@ -180,14 +180,14 @@ const makeGasManagerRequest = async <T>(
         const data: any = await response.json();
 
         if (data.error) {
-            console.log(data.error);
+            logger.error('Gas Manager API error response', undefined, data.error);
             throw new Error(`Gas Manager API Error: ${data.error.message}`);
         }
 
         return data.result;
     } catch (error) {
         clearTimeout(timeoutId);
-        console.error(`Gas Manager ${method} failed:`, error);
+        logger.error(`Gas Manager ${method} failed`, error instanceof Error ? error : new Error(String(error)));
         throw error;
     }
 };
@@ -196,7 +196,7 @@ const makeGasManagerRequest = async <T>(
 export const requestGasAndPaymasterData = async (
     userOp: any
 ) => {
-    console.log('Requesting gas and paymaster data:', userOp.sender);
+    logger.debug('Requesting gas and paymaster data', { sender: userOp.sender });
     const params: any = {userOp};
     if (config.alchemy.policyId) {
         params.policyId = config.alchemy.policyId;
@@ -211,7 +211,7 @@ export const requestGasAndPaymasterData = async (
 export const sponsorUserOperation = async (
     userOp: any
 ) => {
-    console.log('Sponsoring UserOperation:', userOp.sender);
+    logger.debug('Sponsoring UserOperation', { sender: userOp.sender });
     const params: any = {
         userOp,
         sponsorshipType: 'full'
@@ -230,7 +230,7 @@ export const sponsorUserOperation = async (
 export const getPaymasterOptions = async (
     userOp: any
 ) => {
-    console.log('Getting paymaster options:', userOp.sender);
+    logger.debug('Getting paymaster options', { sender: userOp.sender });
     return await makeGasManagerRequest(
         'alchemy_getPaymasterOptions',
         [{userOp}]
@@ -240,7 +240,7 @@ export const getPaymasterOptions = async (
 export const estimateGasCost = async (
     userOp: any
 ) => {
-    console.log('Estimating gas cost:', userOp.sender);
+    logger.debug('Estimating gas cost', { sender: userOp.sender });
     return await makeGasManagerRequest(
         'alchemy_estimateGasCost',
         [{userOp}]
@@ -250,7 +250,7 @@ export const estimateGasCost = async (
 export const getAlchemyPaymasterStubData = async (
     userOp: any, entryPointAddress: Address, chainId: string | number
 ) => {
-    console.log('Getting alchemyPaymasterStubData', userOp);
+    logger.debug('Getting alchemyPaymasterStubData', { userOp });
     userOp = {
         ...userOp,
         maxFeePerGas: toHex(userOp.maxFeePerGas) as string,
@@ -261,7 +261,7 @@ export const getAlchemyPaymasterStubData = async (
         preVerificationGas: toHex(userOp.preVerificationGas) as string,
     }
     const params: any = [userOp, entryPointAddress, toHex(chainId), {policyId: config.alchemy.policyId}];
-    console.log('Getting paymaster stub data:', params);
+    logger.debug('Getting paymaster stub data', { params });
     return await makeGasManagerRequest(
         'pm_getPaymasterStubData',
         params

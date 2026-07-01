@@ -27,6 +27,7 @@ export interface ITransaction extends Document {
     retryCount: number;
     failureReason?: string;
     workerId?: string;
+    requestId?: string;
     rpcEndpoint?: string;
     idempotencyKey?: string;
     sessionKeyAddress?: string;
@@ -127,6 +128,10 @@ const transactionSchema = new Schema<ITransaction>({
     },
     workerId: {
         type: String
+    },
+    requestId: {
+        type: String,
+        required: false
     },
     rpcEndpoint: {
         type: String

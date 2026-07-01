@@ -8,6 +8,7 @@ import {
     setAuthData,
     setCurrentChainId,
     setIsLoading,
+    setCreationError,
     setSmartAccountInfo,
     setUserAccounts,
 } from '@/app/store/smartAccountSlice';
@@ -16,6 +17,8 @@ import {
 const TOKEN_KEY = 'nexus_auth_token';
 
 const REFRESH_TOKEN_KEY = 'nexus_refresh_token';
+
+const createAccountRequests = new Map<string, Promise<unknown>>();
 
 const getStoredToken = (): string | null => {
     return localStorage.getItem(TOKEN_KEY);
@@ -32,8 +35,6 @@ const removeStoredToken = (): void => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
 };
-
-import { toSmartWallet } from '../model/adapter';
 
 export function useBackendSmartAccount() {
     const dispatch = useDispatch();
@@ -65,20 +66,34 @@ export function useBackendSmartAccount() {
         return () => window.removeEventListener('nexus-auth-unauthorized', handleUnauthorized);
     }, [handleLogout]);
 
+    // Synchronize Redux token when API client silent refresh completes
+    useEffect(() => {
+        const handleTokenRefreshed = (e: Event) => {
+            const customEvent = e as CustomEvent<{ token: string }>;
+            if (user && customEvent.detail?.token) {
+                dispatch(setAuthData({ user, token: customEvent.detail.token }));
+            }
+        };
+        window.addEventListener('nexus-token-refreshed', handleTokenRefreshed);
+        return () => window.removeEventListener('nexus-token-refreshed', handleTokenRefreshed);
+    }, [user, dispatch]);
+
     const loadAccountInfo = useCallback(async (authToken: string, chainId?: number) => {
         try {
             const targetChainId = chainId || currentChainId;
             const accountsResponse = await apiClient.getUserAccounts(authToken, targetChainId);
             if (accountsResponse.success && accountsResponse.data?.accounts) {
-                const accounts = accountsResponse.data.accounts.map(toSmartWallet);
+                const accounts = accountsResponse.data.accounts;
                 dispatch(setUserAccounts(accounts));
                 dispatch(setSmartAccountInfo(accounts[0] ?? null));
             } else {
-                dispatch(setUserAccounts([]));
-                dispatch(setSmartAccountInfo(null));
+                throw new Error(accountsResponse.error?.message || 'Failed to load accounts');
             }
         } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to load account info';
+            dispatch(setCreationError(message));
             console.error('Failed to load account info:', err);
+            throw err;
         }
     }, [currentChainId, dispatch]);
 
@@ -126,14 +141,14 @@ export function useBackendSmartAccount() {
     // loadAccountInfo handles both userAccounts and smartAccountInfo — use it directly.
     const loadUserAccounts = loadAccountInfo;
 
-    const loginWithCredentials = useCallback(async (userData: { user: any; token: string }) => {
+    const loginWithCredentials = useCallback(async (userData: { user: any; token: string; refreshToken?: string }) => {
         try {
             dispatch(setIsLoading(true));
 
-            const {user: userInfo, token: authToken} = userData;
+            const {user: userInfo, token: authToken, refreshToken} = userData;
 
             // Store token
-            setStoredToken(authToken);
+            setStoredToken(authToken, refreshToken);
 
             // Update Redux state
             dispatch(setAuthData({user: userInfo, token: authToken}));
@@ -142,7 +157,7 @@ export function useBackendSmartAccount() {
             await loadAccountInfo(authToken);
 
             console.log('✅ Authentication successful:', {user: userInfo});
-            return {user: userInfo, token: authToken};
+            return {user: userInfo, token: authToken, refreshToken};
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
             throw new Error(errorMessage);
@@ -265,31 +280,44 @@ export function useBackendSmartAccount() {
         walletID: string = 'ALCHEMY',
         accountType: string = 'default'
     ) => {
-        try {
-            if (!isAuthenticated || !token) {
-                throw new Error('Not authenticated');
-            }
-
-            dispatch(setIsLoading(true));
-            const response = await apiClient.createSmartAccount(
-                token,
-                chainId || currentChainId,
-                walletID,
-                accountType
-            );
-
-            if (response.success && response.data) {
-                await loadAccountInfo(token, chainId || currentChainId);
-                return response.data;
-            } else {
-                throw new Error(response.error?.message || 'Failed to create smart account');
-            }
-        } catch (err) {
-            console.error('Failed to create smart account:', err);
-            throw err;
-        } finally {
-            dispatch(setIsLoading(false));
+        if (!isAuthenticated || !token) {
+            throw new Error('Not authenticated');
         }
+
+        const targetChainId = chainId || currentChainId;
+        const requestKey = `${token}:${targetChainId}:${walletID}:${accountType}`;
+        const activeRequest = createAccountRequests.get(requestKey);
+        if (activeRequest) {
+            return activeRequest;
+        }
+
+        const request = (async () => {
+            try {
+                dispatch(setIsLoading(true));
+                const response = await apiClient.createSmartAccount(
+                    token,
+                    targetChainId,
+                    walletID,
+                    accountType
+                );
+
+                if (response.success && response.data) {
+                    await loadAccountInfo(token, targetChainId);
+                    return response.data;
+                } else {
+                    throw new Error(response.error?.message || 'Failed to create smart account');
+                }
+            } catch (err) {
+                console.error('Failed to create smart account:', err);
+                throw err;
+            } finally {
+                createAccountRequests.delete(requestKey);
+                dispatch(setIsLoading(false));
+            }
+        })();
+
+        createAccountRequests.set(requestKey, request);
+        return request;
     }, [isAuthenticated, token, currentChainId, loadAccountInfo, dispatch]);
 
     const deploySmartAccount = useCallback(async (

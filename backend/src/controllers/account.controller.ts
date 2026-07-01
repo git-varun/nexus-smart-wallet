@@ -1,11 +1,11 @@
-import {Response} from 'express';
+import {Response, NextFunction} from 'express';
 import {AuthenticatedRequest, getUserId} from '../middleware';
 import {createUserAccount, getAccountDetails, getUserAccounts} from '../services/account.service';
 import {createServiceLogger} from '../utils';
 
-const logger = createServiceLogger('AccountController');
+const logger = createServiceLogger('Wallet');
 
-export async function createSmartAccount(req: AuthenticatedRequest, res: Response): Promise<void> {
+export async function createSmartAccount(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = getUserId(req);
         const {chainId, walletID, accountType} = req.body;
@@ -68,10 +68,12 @@ export async function createSmartAccount(req: AuthenticatedRequest, res: Respons
         const result = await createUserAccount(userId, chainId, walletID, accountType);
 
         if (result.success) {
-            res.status(201).json({
+            res.status(result.alreadyExists ? 200 : 201).json({
                 success: true,
                 data: {
-                    smartAccount: result.account
+                    smartAccount: result.account,
+                    account: result.account,
+                    alreadyExists: !!result.alreadyExists
                 }
             });
         } else {
@@ -85,18 +87,11 @@ export async function createSmartAccount(req: AuthenticatedRequest, res: Respons
         }
 
     } catch (error) {
-        logger.error('Create or get smart account failed', error instanceof Error ? error : new Error(String(error)));
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'INTERNAL_ERROR',
-                message: 'Failed to create or get smart account'
-            }
-        });
+        next(error);
     }
 }
 
-export async function getMySmartAccounts(req: AuthenticatedRequest, res: Response): Promise<void> {
+export async function getMySmartAccounts(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const userId = getUserId(req);
         if (!userId) {
@@ -143,19 +138,24 @@ export async function getMySmartAccounts(req: AuthenticatedRequest, res: Respons
         }
 
     } catch (error) {
-        logger.error('Get my smart account failed', error instanceof Error ? error : new Error(String(error)));
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'INTERNAL_ERROR',
-                message: 'Failed to get smart account'
-            }
-        });
+        next(error);
     }
 }
 
-export async function getSmartAccountDetails(req: AuthenticatedRequest, res: Response): Promise<void> {
+export async function getSmartAccountDetails(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+        const userId = getUserId(req);
+        if (!userId) {
+            res.status(401).json({
+                success: false,
+                error: {
+                    code: 'UNAUTHORIZED',
+                    message: 'User authentication required'
+                }
+            });
+            return;
+        }
+
         const {address} = req.params;
         const {chainId} = req.query;
 
@@ -185,7 +185,19 @@ export async function getSmartAccountDetails(req: AuthenticatedRequest, res: Res
         const addressStr = typeof address === 'string' ? address : String(address);
         const result = await getAccountDetails(addressStr, parseInt(chainIdStr, 10));
 
-        if (result.success) {
+        if (result.success && result.account) {
+            // Security check: ensure user owns this smart account
+            if (result.account.userId !== userId) {
+                res.status(403).json({
+                    success: false,
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: 'You do not have permission to view this smart account details'
+                    }
+                });
+                return;
+            }
+
             res.status(200).json({
                 success: true,
                 data: {
@@ -203,13 +215,6 @@ export async function getSmartAccountDetails(req: AuthenticatedRequest, res: Res
         }
 
     } catch (error) {
-        logger.error('Get smart account details failed', error instanceof Error ? error : new Error(String(error)));
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'INTERNAL_ERROR',
-                message: 'Failed to get smart account details'
-            }
-        });
+        next(error);
     }
 }

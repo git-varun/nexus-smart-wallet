@@ -64,6 +64,10 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
 
 
     const handleCreateAccount = async () => {
+        if (isCreating) {
+            return;
+        }
+
         if (!token) {
             setError('Authentication token not available');
             return;
@@ -120,6 +124,11 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
                 console.log('✅ Smart account created:', response.data);
                 onAccountCreated?.();
             } else {
+                const message = response.error?.message || 'Failed to create account';
+                if (message.toLowerCase().includes('account already exists')) {
+                    onAccountCreated?.();
+                    return;
+                }
                 throw new Error(response.error?.message || 'Failed to create account');
             }
         } catch (err) {
@@ -516,6 +525,7 @@ export const AccountCreation: React.FC<AccountCreationProps> = ({
                     variant="primary"
                     size="lg"
                     loading={isCreating}
+                    disabled={isCreating}
                     glow={!isCreating}
                     className="px-12"
                 >

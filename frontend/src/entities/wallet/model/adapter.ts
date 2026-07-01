@@ -21,12 +21,12 @@ export function toSmartWallet(dto: SmartAccountInfo): SmartWallet {
         address: dto.address,
         chainId: dto.chainId,
         isDeployed: dto.isDeployed,
-        walletID: dto.walletID,
-        accountType: dto.accountType,
+        walletID: dto.walletID || '',
+        accountType: dto.accountType || '',
         balance: dto.balance || '0',
         nonce: dto.nonce || 0,
         createdAt: new Date(dto.createdAt),
         updatedAt: new Date(dto.updatedAt),
-        signerAddress: dto.signerAddress,
+        signerAddress: dto.signerAddress || undefined,
     };
 }

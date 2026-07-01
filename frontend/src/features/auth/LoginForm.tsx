@@ -5,7 +5,7 @@ import {Input} from '@/shared/ui/Input';
 import {apiClient} from '../../services/apiClient';
 
 interface LoginFormProps {
-    onSuccess: (userData: { user: any; token: string }) => void;
+    onSuccess: (userData: { user: any; token: string; refreshToken?: string }) => void;
     onSwitchToRegister: () => void;
 }
 
@@ -79,6 +79,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({onSuccess, onSwitchToRegist
                         value={formData.email}
                         onChange={handleChange}
                         required
+                        autoFocus
                         variant="cyber"
                         placeholder="Enter your email"
                         leftIcon={

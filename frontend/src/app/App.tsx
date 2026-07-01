@@ -3,17 +3,13 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createStandardQueryClient } from '@/shared/lib/reactQuery';
-import { WagmiProvider } from 'wagmi';
-import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
-import { config } from '@/app/config/wagmi';
 import { persistor, store } from '@/app/store/store';
 import { MainLayout } from '@/app/layouts/MainLayout';
 import { ErrorBoundary } from '@/app/layouts/ErrorBoundary';
 import { ThemeProvider } from '@/app/providers/ThemeContext';
 import { ToastProvider } from '@/app/providers/Toast';
-import { NotificationProvider } from '@/app/providers/NotificationContext';
 import { StateView } from '@/shared/ui/StateView';
 import './globals.css';
 import '@rainbow-me/rainbowkit/styles.css';
@@ -42,33 +38,27 @@ function App() {
                     }
                     persistor={persistor}
                 >
-                    <WagmiProvider config={config}>
-                        <QueryClientProvider client={queryClient}>
-                            <RainbowKitProvider>
-                                <ThemeProvider>
-                                    <ToastProvider>
-                                        <NotificationProvider>
-                                            <BrowserRouter>
-                                                <Routes>
-                                                    {/* Authenticated route group guarded by MainLayout */}
-                                                    <Route path="/" element={<MainLayout />}>
-                                                        <Route index element={<Home />} />
-                                                        <Route path="assets" element={<Assets />} />
-                                                        <Route path="transfer" element={<Transfer />} />
-                                                        <Route path="activity" element={<Activity />} />
-                                                        <Route path="security" element={<Security />} />
-                                                        <Route path="settings" element={<Settings />} />
-                                                        <Route path="developer" element={<DeveloperTools />} />
-                                                        <Route path="*" element={<NotFound />} />
-                                                    </Route>
-                                                </Routes>
-                                            </BrowserRouter>
-                                        </NotificationProvider>
-                                    </ToastProvider>
-                                </ThemeProvider>
-                            </RainbowKitProvider>
-                        </QueryClientProvider>
-                    </WagmiProvider>
+                    <QueryClientProvider client={queryClient}>
+                        <ThemeProvider>
+                            <ToastProvider>
+                                <BrowserRouter>
+                                    <Routes>
+                                        {/* Authenticated route group guarded by MainLayout */}
+                                        <Route path="/" element={<MainLayout />}>
+                                            <Route index element={<Home />} />
+                                            <Route path="assets" element={<Assets />} />
+                                            <Route path="transfer" element={<Transfer />} />
+                                            <Route path="activity" element={<Activity />} />
+                                            <Route path="security" element={<Security />} />
+                                            <Route path="settings" element={<Settings />} />
+                                            <Route path="developer" element={<DeveloperTools />} />
+                                            <Route path="*" element={<NotFound />} />
+                                        </Route>
+                                    </Routes>
+                                </BrowserRouter>
+                            </ToastProvider>
+                        </ThemeProvider>
+                    </QueryClientProvider>
                 </PersistGate>
             </Provider>
         </ErrorBoundary>

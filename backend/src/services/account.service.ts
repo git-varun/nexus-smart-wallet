@@ -6,64 +6,93 @@ import {SUPPORTED_WALLETS} from "../config/config";
 import {getAccount} from "../scripts/permissionless";
 import {rpcProvider} from "./provider.service";
 
-const logger = createServiceLogger('AccountService');
+const logger = createServiceLogger('Wallet');
 
 export async function createUserAccount(
     userId: string,
     chainId: number,
     walletID: string,
     accountType: string
-): Promise<{ success: boolean, account?: IAccount, error?: Error | string }> {
+): Promise<{ success: boolean, account?: IAccount, alreadyExists?: boolean, error?: Error | string }> {
     try {
 
-        logger.info('Creating new account', {userId, chainId, walletID, accountType});
+        logger.debug('Creating new account', {userId, chainId, walletID, accountType});
 
-        // Check for existing wallets
-        const accounts = await accountRepository.findBy({userId, chainId, walletID, accountType});
-        if (accounts.length > 0) return {
-            success: false,
-            error: "Account already exists for the same provider and chain.",
-        };
-
-        if (SUPPORTED_WALLETS.includes(walletID)) {
-            const account = await getAccount(walletID, {
-                userId,
-                chainId,
-                walletID,
-                accountType,
-                isDeployed: false,
-                isActive: false,
-            } as any);
-            const factoryInfo = await account.getFactoryArgs();
-            const newAccount = await accountRepository.createAccount(
-                {
-                    userId,
-                    address: account.address,
-                    chainId,
-                    isDeployed: false,
-                    isActive: false,
-                    signerAddress: "CENTRAL_WALLET",
-                    accountType,
-                    walletID,
-                    providerInfo: {
-                        factory: factoryInfo?.factory,
-                        factoryData: factoryInfo?.factoryData
-                    }
-                }
-            )
-            logger.info('Created new account via Alchemy', newAccount);
-            return {
-                success: true,
-                account: newAccount,
-            }
-        } else {
+        if (!SUPPORTED_WALLETS.includes(walletID)) {
             return {
                 success: false,
                 error: `An unsupported provider: ${walletID}. Currently only ALCHEMY, SAFE is supported.`
             };
         }
 
+        const account = await getAccount(walletID, {
+            userId,
+            chainId,
+            walletID,
+            accountType,
+            isDeployed: false,
+            isActive: false,
+        } as any);
+        const factoryInfo = await account.getFactoryArgs();
+        const result = await accountRepository.findOrCreateAccount(
+            {userId, chainId, walletID, accountType},
+            {
+                userId,
+                address: account.address,
+                chainId,
+                isDeployed: false,
+                isActive: false,
+                signerAddress: "CENTRAL_WALLET",
+                accountType,
+                walletID,
+                providerInfo: {
+                    factory: factoryInfo?.factory,
+                    factoryData: factoryInfo?.factoryData
+                }
+            }
+        );
+
+        if (result.created) {
+            logger.info('Wallet created');
+            logger.debug('Wallet created details', { account: result.account });
+            return {
+                success: true,
+                account: result.account,
+                alreadyExists: false,
+            };
+        }
+
+        logger.info('Wallet create request matched existing account', {userId, chainId, walletID, accountType});
+        return {
+            success: true,
+            account: result.account,
+            alreadyExists: true,
+        };
+
     } catch (error: any) {
+        if (error?.code === 11000) {
+            const accounts = await accountRepository.findBy({userId, chainId, walletID, accountType});
+            if (accounts.length > 0) {
+                logger.info('Recovered duplicate account create race from unique index', {
+                    userId,
+                    chainId,
+                    walletID,
+                    accountType
+                });
+                return {
+                    success: true,
+                    account: accounts[0],
+                    alreadyExists: true,
+                };
+            }
+
+            logger.error('Account unique index conflict could not be resolved', error);
+            return {
+                success: false,
+                error: 'Account uniqueness conflict could not be resolved'
+            };
+        }
+
         if (error?.message?.includes('already exists')) {
             logger.warn('Account already exists in Alchemy, but not in our database', {
                 userId,
@@ -217,4 +246,3 @@ export async function reconcileAllAccountsDeploymentStatus(): Promise<void> {
         logger.error('Failed running background accounts deployment reconciliation', error as Error);
     }
 }
-

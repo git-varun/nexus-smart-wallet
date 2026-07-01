@@ -8,7 +8,6 @@ import { QUERY_KEYS, QUERY_TIMES, MUTATION_KEYS } from '@/shared/lib/reactQuery'
 import { useAccount, useSignMessage } from 'wagmi';
 import { parseEther } from 'viem';
 
-import { toSessionKey } from '../model/adapter';
 
 export const useSessionKeys = () => {
     const { smartAccountAddress, token, currentChainId } = useBackendSmartAccount();
@@ -25,7 +24,7 @@ export const useSessionKeys = () => {
             if (!smartAccountAddress || !token) return [];
             const response = await apiClient.getSessionKeys(token, currentChainId, smartAccountAddress);
             if (response.success && response.data) {
-                return response.data.map(toSessionKey);
+                return response.data;
             }
             throw new Error(response.error?.message || 'Failed to fetch session keys');
         },
@@ -127,12 +126,11 @@ export const useSessionKeys = () => {
 
     const validateSessionKey = useCallback(async (sessionKeyId: string): Promise<boolean> => {
         if (!smartAccountAddress || !token) return false;
-        try {
-            const response = await apiClient.validateSessionKey(token, sessionKeyId);
-            return response.success && !!response.data?.isValid;
-        } catch {
-            return false;
+        const response = await apiClient.validateSessionKey(token, sessionKeyId);
+        if (!response.success || !response.data) {
+            throw new Error(response.error?.message || 'Failed to validate session key');
         }
+        return response.data.isValid;
     }, [smartAccountAddress, token]);
 
     return {

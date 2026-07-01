@@ -6,7 +6,7 @@ import {errorHandlerMiddleware, requestIdMiddleware} from './middleware';
 import {routes} from './routes';
 import {createServiceLogger, metrics, logger as globalLogger} from './utils';
 
-const logger = createServiceLogger('App');
+const logger = createServiceLogger('API');
 
 async function createApp(): Promise<express.Application> {
     const app = express();
@@ -16,7 +16,6 @@ async function createApp(): Promise<express.Application> {
 
     // Validate configuration
     validateConfig();
-    logger.info('✅ Configuration validated');
 
     // Basic security headers
     app.use(helmet({
@@ -107,7 +106,6 @@ async function createApp(): Promise<express.Application> {
     // Error handler (must be last)
     app.use(errorHandlerMiddleware);
 
-    logger.info('🚀 Nexus Smart Wallet API ready');
     return app;
 }
 

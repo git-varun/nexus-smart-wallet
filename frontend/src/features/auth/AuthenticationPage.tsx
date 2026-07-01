@@ -2,23 +2,22 @@ import React, {useState} from 'react';
 import {motion} from 'framer-motion';
 import {LoginForm} from './LoginForm';
 import {RegisterForm} from './RegisterForm';
-import {WalletTypeSelector} from '@/features/wallet/WalletTypeSelector';
 
-type AuthMode = 'login' | 'register' | 'wallet-select';
+type AuthMode = 'login' | 'register';
 
 interface AuthenticationPageProps {
-    onAuthSuccess: (userData: { user: any; token: string }) => void;
+    onAuthSuccess: (userData: { user: any; token: string; refreshToken?: string }) => void;
 }
 
 export const AuthenticationPage: React.FC<AuthenticationPageProps> = ({onAuthSuccess}) => {
-    const [authMode, setAuthMode] = useState<AuthMode>('wallet-select');
+    const [authMode, setAuthMode] = useState<AuthMode>('login');
 
     const handleAuthSuccess = (userData: { user: any; token: string }) => {
         onAuthSuccess(userData);
     };
 
     return (
-        <div
+        <main
             className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
             {/* Background Effects */}
             <div className="absolute inset-0 overflow-hidden">
@@ -59,41 +58,16 @@ export const AuthenticationPage: React.FC<AuthenticationPageProps> = ({onAuthSuc
 
                 {/* Auth Forms */}
                 <div className="relative">
-                    {authMode === 'wallet-select' ? (
-                        <WalletTypeSelector
-                            onEmailLogin={() => setAuthMode('login')}
-                            onMetaMaskSuccess={handleAuthSuccess}
+                    {authMode === 'login' ? (
+                        <LoginForm
+                            onSuccess={handleAuthSuccess}
+                            onSwitchToRegister={() => setAuthMode('register')}
                         />
-                    ) : authMode === 'login' ? (
-                        <div>
-                            <LoginForm
-                                onSuccess={handleAuthSuccess}
-                                onSwitchToRegister={() => setAuthMode('register')}
-                            />
-                            <div className="text-center mt-4">
-                                <button
-                                    onClick={() => setAuthMode('wallet-select')}
-                                    className="text-slate-400 hover:text-slate-300 text-sm underline"
-                                >
-                                    ← Back to connection options
-                                </button>
-                            </div>
-                        </div>
                     ) : (
-                        <div>
-                            <RegisterForm
-                                onSuccess={handleAuthSuccess}
-                                onSwitchToLogin={() => setAuthMode('login')}
-                            />
-                            <div className="text-center mt-4">
-                                <button
-                                    onClick={() => setAuthMode('wallet-select')}
-                                    className="text-slate-400 hover:text-slate-300 text-sm underline"
-                                >
-                                    ← Back to connection options
-                                </button>
-                            </div>
-                        </div>
+                        <RegisterForm
+                            onSuccess={handleAuthSuccess}
+                            onSwitchToLogin={() => setAuthMode('login')}
+                        />
                     )}
                 </div>
 
@@ -145,6 +119,6 @@ export const AuthenticationPage: React.FC<AuthenticationPageProps> = ({onAuthSuc
                     </div>
                 </motion.div>
             </div>
-        </div>
+        </main>
     );
 };

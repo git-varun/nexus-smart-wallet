@@ -27,7 +27,7 @@ export const NetworkStatus: React.FC = () => {
             const response = await apiClient.getHealthCheck();
             const endTime = Date.now();
 
-            if (response.success) {
+            if (response.status === 'UP') {
                 setStatus(prev => ({
                     ...prev,
                     apiConnected: true,
@@ -148,23 +148,23 @@ export const NetworkStatus: React.FC = () => {
 
     return (
         <div className="fixed bottom-4 right-4 z-50 max-w-sm">
-            <Card className={`p-4 shadow-lg border-l-4 ${
-                !status.isOnline ? 'border-l-red-500 bg-red-50' :
-                    !status.apiConnected ? 'border-l-yellow-500 bg-yellow-50' :
-                        'border-l-green-500 bg-green-50'
+            <Card className={`p-4 shadow-xl border border-border/80 border-l-4 bg-slate-900/95 backdrop-blur-md transition-all duration-300 ${
+                !status.isOnline ? 'border-l-destructive/80' :
+                    !status.apiConnected ? 'border-l-amber-500/80' :
+                        'border-l-emerald-500/80'
             }`}>
                 <div className="flex items-center space-x-3">
-                    <div className={`w-3 h-3 rounded-full ${getStatusColor()} ${
+                    <div className={`w-2.5 h-2.5 rounded-full ${getStatusColor()} ${
                         !status.isOnline || !status.apiConnected ? 'animate-pulse' : ''
                     }`}></div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="text-xs font-bold text-slate-100 uppercase tracking-wider">
                             {getStatusText()}
                         </p>
-                        <p className="text-xs text-gray-600 truncate">
+                        <p className="text-xs text-slate-400 mt-0.5 truncate leading-relaxed">
                             {getStatusMessage()}
                         </p>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-[10px] text-slate-500 font-medium mt-1">
                             Last checked: {new Date(status.lastChecked).toLocaleTimeString()}
                         </p>
                     </div>
@@ -173,6 +173,7 @@ export const NetworkStatus: React.FC = () => {
                             size="sm"
                             variant="outline"
                             onClick={handleRetryConnection}
+                            className="h-7 text-[10px] px-2.5 border-border/85 hover:bg-muted text-muted-foreground hover:text-foreground shrink-0"
                         >
                             Retry
                         </Button>
@@ -183,9 +184,10 @@ export const NetworkStatus: React.FC = () => {
                 {status.isOnline && status.apiConnected && (
                     <button
                         onClick={() => setIsVisible(false)}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                        className="absolute top-2 right-2 text-slate-500 hover:text-slate-300 transition-colors"
+                        aria-label="Dismiss network status"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                   d="M6 18L18 6M6 6l12 12"/>
                         </svg>
@@ -208,7 +210,7 @@ export const useNetworkStatus = () => {
         const checkApi = async () => {
             try {
                 const response = await apiClient.getHealthCheck();
-                setApiConnected(response.success);
+                setApiConnected(response.status === 'UP');
             } catch {
                 setApiConnected(false);
             }

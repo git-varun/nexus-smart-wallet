@@ -6,7 +6,7 @@ import {apiClient} from '../../services/apiClient';
 import {cn} from '@/shared/lib/cn';
 
 interface RegisterFormProps {
-    onSuccess: (userData: { user: any; token: string }) => void;
+    onSuccess: (userData: { user: any; token: string; refreshToken?: string }) => void;
     onSwitchToLogin: () => void;
 }
 
@@ -141,6 +141,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({onSuccess, onSwitchTo
                         value={formData.email}
                         onChange={handleChange}
                         required
+                        autoFocus
                         variant="cyber"
                         placeholder="Enter your email"
                         error={validationErrors.email}

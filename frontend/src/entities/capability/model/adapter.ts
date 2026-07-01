@@ -1,4 +1,5 @@
 // src/entities/capability/model/adapter.ts
+import { CapabilitiesPayload } from '@/shared/api/capabilities';
 
 export interface Chain {
     id: number;
@@ -16,12 +17,12 @@ export interface FrontendCapabilities {
     gasSponsorshipSupport: boolean;
 }
 
-export function toCapabilities(dto: any): FrontendCapabilities {
+export function toCapabilities(dto: CapabilitiesPayload): FrontendCapabilities {
     return {
         supportedWallets: dto.supportedWallets || [],
-        supportedChains: (dto.supportedChains || []).map((c: any) => ({
-            id: Number(c.id || c.chainId),
-            name: String(c.name || c.chainName || ''),
+        supportedChains: dto.supportedChains.map(c => ({
+            id: c.id,
+            name: c.name,
         })),
         supportedBundlers: dto.supportedBundlers || [],
         supportedPaymasters: dto.supportedPaymasters || [],

@@ -1,5 +1,5 @@
 import {transactionRepository} from '../repositories';
-import {createServiceLogger, getRPC_URL, metrics} from '../utils';
+import {createServiceLogger, getRPC_URL, metrics, logContextStorage} from '../utils';
 import {Address, getAddress, Hex, isAddress, parseEther, zeroAddress} from 'viem'
 import {entryPoint06Address, entryPoint07Address} from "viem/account-abstraction";
 import {TransactionInfo, TransactionRequest} from '../types';
@@ -12,7 +12,9 @@ import {notificationService} from "./notification.service";
 import {getAccount} from "../scripts/permissionless";
 
 
-const logger = createServiceLogger('TransactionService');
+const logger = createServiceLogger('Transaction');
+const queueLogger = createServiceLogger('Queue');
+const walletLogger = createServiceLogger('Wallet');
 
 async function userAccount(userId: string, chainId: number, walletID: string): Promise<IAccount> {
     const smartAccountResult = await getUserAccount(userId, chainId, walletID);
@@ -90,10 +92,12 @@ export async function deploySmartAccountService(userId: string, chainId: number,
             chainId: accountDetails.chainId,
             status: 'queued',
             queuedAt: new Date(),
-            idempotencyKey
+            idempotencyKey,
+            requestId: logContextStorage.getStore()?.requestId
         });
 
-        logger.info("Deployment transaction enqueued", transaction.id);
+        queueLogger.info('Transaction queued');
+        logger.debug('Deployment transaction enqueued details', { transactionId: transaction.id });
 
         return {
             success: true,
@@ -111,7 +115,7 @@ export async function deploySmartAccountService(userId: string, chainId: number,
 
 export async function sendTransaction(userId: string, chainId: number, walletID: string, paymasterID: string, bundlerId: string, request: TransactionRequest) {
     try {
-        logger.info('initiated send transaction enqueue', {userId, chainId, ...request});
+        logger.debug('initiated send transaction enqueue', {userId, chainId, ...request});
 
         if (!isAddress(request.to)) throw new Error(`Invalid recipient address: ${request.to}`);
         const checksummedTo = getAddress(request.to);
@@ -142,10 +146,12 @@ export async function sendTransaction(userId: string, chainId: number, walletID:
             status: 'queued',
             queuedAt: new Date(),
             idempotencyKey: request.idempotencyKey,
-            sessionKeyAddress: request.sessionKeyAddress
+            sessionKeyAddress: request.sessionKeyAddress,
+            requestId: logContextStorage.getStore()?.requestId
         });
 
-        logger.info("Transaction enqueued successfully", transaction.id);
+        queueLogger.info('Transaction queued');
+        logger.debug('Transaction enqueued successfully', { transactionId: transaction.id });
 
         return {
             success: true,
@@ -173,7 +179,7 @@ export async function sendTransactionBatch(
     }
 ) {
     try {
-        logger.info('initiated send transaction batch enqueue', {userId, chainId, callsCount: request.calls.length});
+        logger.debug('initiated send transaction batch enqueue', {userId, chainId, callsCount: request.calls.length});
 
         // Validate recipient addresses in calls
         const validatedCalls = request.calls.map(call => {
@@ -209,10 +215,12 @@ export async function sendTransactionBatch(
             status: 'queued',
             queuedAt: new Date(),
             idempotencyKey: request.idempotencyKey,
-            sessionKeyAddress: request.sessionKeyAddress
+            sessionKeyAddress: request.sessionKeyAddress,
+            requestId: logContextStorage.getStore()?.requestId
         });
 
-        logger.info("Batch transaction enqueued successfully", transaction.id);
+        queueLogger.info('Transaction queued');
+        logger.debug('Batch transaction enqueued successfully', { transactionId: transaction.id });
 
         return {
             success: true,
@@ -317,11 +325,9 @@ export async function getUserOperationStatus(chainId: number, userOpHash: string
     error?: Error | string
 }> {
     try {
-        logger.info('Getting user transaction stats', {bundlerId, chainId});
+        logger.debug('Getting user transaction stats', {bundlerId, chainId});
 
         const result = await bundlerProvider.getUserOperation(userOpHash as Hex, chainId, bundlerId);
-
-        console.log(result)
 
         if (!result.status || !result.receipts?.length) throw new Error('Failed to get user operation status');
 
@@ -478,7 +484,8 @@ export async function getNextNonce(
             // Successfully claimed this nonce
             return BigInt(currentVal);
         }
-        // Concurrent update occurred, retry loop
+        // Concurrent update occurred, retry loop with backoff
+        await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 15) + 5));
     }
 }
 
@@ -583,6 +590,8 @@ export async function executeTransactionOnChain(tx: ITransaction) {
         tx.status = 'submitted';
         tx.submittedAt = submittedAt;
         await tx.save();
+        walletLogger.info('UserOperation submitted');
+        logger.debug('UserOperation submitted details', { userOpHash: hash, transactionId: tx.id });
 
         const confStart = Date.now();
         const receipt = await client.waitForUserOperationReceipt({ hash });
@@ -595,17 +604,20 @@ export async function executeTransactionOnChain(tx: ITransaction) {
             tx.hash = receipt.receipt.transactionHash;
             tx.gasUsed = receipt.actualGasUsed?.toString();
             
+            queueLogger.info('Transaction confirmed', { txId: tx.id });
             if (isDeployment) {
                 await updateAccount(accountDetails.id, {
                     isDeployed: true,
                     isActive: true
                 });
+                walletLogger.info('Wallet deployed', { txId: tx.id });
                 notificationService.sendNotification(tx.userId, "deployment.complete", {
                     transactionId: tx.id,
                     accountId: tx.accountId,
                     hash: tx.hash
                 });
             } else {
+                walletLogger.info('Transaction confirmed', { txId: tx.id });
                 notificationService.sendNotification(tx.userId, "transaction.confirmed", {
                     transactionId: tx.id,
                     accountId: tx.accountId,
@@ -615,6 +627,7 @@ export async function executeTransactionOnChain(tx: ITransaction) {
         } else {
             tx.status = 'failed';
             tx.failureReason = 'UserOperation reverted on-chain';
+            queueLogger.info('Transaction failed', { txId: tx.id, reason: tx.failureReason });
             notificationService.sendNotification(tx.userId, "transaction.failed", {
                 transactionId: tx.id,
                 accountId: tx.accountId,
@@ -636,6 +649,7 @@ export async function executeTransactionOnChain(tx: ITransaction) {
             tx.status = 'retrying';
             tx.retryCount += 1;
             tx.failureReason = `Transient failure: ${errorMsg}`;
+            logger.debug(`Transaction retry attempt ${tx.retryCount} for ${tx.id}: ${errorMsg}`);
             notificationService.sendNotification(tx.userId, "transaction.retry_started", {
                 transactionId: tx.id,
                 retryCount: tx.retryCount,
@@ -646,6 +660,7 @@ export async function executeTransactionOnChain(tx: ITransaction) {
             tx.failureReason = `Permanent failure: ${errorMsg}`;
             tx.completedAt = new Date();
             tx.executionDuration = tx.completedAt.getTime() - tx.startedAt.getTime();
+            queueLogger.info('Transaction failed', { txId: tx.id, reason: tx.failureReason });
             notificationService.sendNotification(tx.userId, "transaction.failed", {
                 transactionId: tx.id,
                 accountId: tx.accountId,

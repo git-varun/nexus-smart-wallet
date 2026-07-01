@@ -241,7 +241,7 @@ export const UserProfileTab: React.FC = () => {
                                 userId={user?.id}
                                 username={user?.username}
                                 email={user?.email}
-                                profileImageUrl={user?.profileImage}
+                                profileImageUrl={user?.profileImageUrl}
                                 size="xl"
                                 animated={true}
                             />
@@ -263,7 +263,7 @@ export const UserProfileTab: React.FC = () => {
                                 <Upload className="w-3.5 h-3.5" />
                                 Upload Image
                             </Button>
-                            {user?.profileImage && (
+                            {user?.profileImageUrl && (
                                 <Button
                                     variant="danger"
                                     size="sm"

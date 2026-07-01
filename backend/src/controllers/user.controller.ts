@@ -1,4 +1,4 @@
-import {Request, Response} from 'express';
+import {Request, Response, NextFunction} from 'express';
 import {
     checkAvailability,
     getUserById,
@@ -11,10 +11,10 @@ import {getUserId} from "../middleware";
 import {createServiceLogger} from "../utils";
 
 
-const logger = createServiceLogger('UserController');
+const logger = createServiceLogger('API');
 
 
-export async function getProfile(req: Request, res: Response) {
+export async function getProfile(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = getUserId(req);
         if (!userId) {
@@ -37,15 +37,11 @@ export async function getProfile(req: Request, res: Response) {
             }
         });
     } catch (error) {
-        console.error('Error getting user profile:', error);
-        res.status(500).json({
-            success: false,
-            error: {message: 'Internal server error', code: 'SERVER_ERROR'}
-        });
+        next(error);
     }
 }
 
-export async function updateProfile(req: Request, res: Response) {
+export async function updateProfile(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = getUserId(req);
         if (!userId) {
@@ -85,15 +81,11 @@ export async function updateProfile(req: Request, res: Response) {
             }
         });
     } catch (error) {
-        console.error('Error updating user profile:', error);
-        res.status(500).json({
-            success: false,
-            error: {message: 'Internal server error', code: 'SERVER_ERROR'}
-        });
+        next(error);
     }
 }
 
-export async function checkUsernameAvailability(req: Request, res: Response) {
+export async function checkUsernameAvailability(req: Request, res: Response, next: NextFunction) {
     try {
         const {username} = req.query;
         const userId = getUserId(req);
@@ -135,15 +127,11 @@ export async function checkUsernameAvailability(req: Request, res: Response) {
             data: result
         });
     } catch (error) {
-        console.error('Error checking username availability:', error);
-        res.status(500).json({
-            success: false,
-            error: {message: 'Internal server error', code: 'SERVER_ERROR'}
-        });
+        next(error);
     }
 }
 
-export async function uploadProfileImage(req: Request, res: Response) {
+export async function uploadProfileImage(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = getUserId(req);
         if (!userId) {
@@ -171,16 +159,12 @@ export async function uploadProfileImage(req: Request, res: Response) {
             success: true,
             data: {profileImageUrl, user: result.user}
         });
-    } catch (error: any) {
-        logger.error('Error uploading profile image', error, getUserId(req));
-        res.status(500).json({
-            success: false,
-            error: {message: error.message || 'Internal server error', code: 'SERVER_ERROR'}
-        });
+    } catch (error) {
+        next(error);
     }
 }
 
-export async function updateAvatarConfig(req: Request, res: Response) {
+export async function updateAvatarConfig(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = getUserId(req);
         if (!userId) {
@@ -212,15 +196,11 @@ export async function updateAvatarConfig(req: Request, res: Response) {
             }
         });
     } catch (error) {
-        logger.error('Error updating avatar config:', Error(String(error)));
-        res.status(500).json({
-            success: false,
-            error: {message: 'Internal server error', code: 'SERVER_ERROR'}
-        });
+        next(error);
     }
 }
 
-export async function deleteProfileImage(req: Request, res: Response) {
+export async function deleteProfileImage(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = getUserId(req);
         if (!userId) {
@@ -243,10 +223,6 @@ export async function deleteProfileImage(req: Request, res: Response) {
             }
         });
     } catch (error) {
-        console.error('Error deleting profile image:', error);
-        res.status(500).json({
-            success: false,
-            error: {message: 'Internal server error', code: 'SERVER_ERROR'}
-        });
+        next(error);
     }
 }

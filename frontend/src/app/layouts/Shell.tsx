@@ -14,12 +14,16 @@ import {
 import { cn } from '@/shared/lib/cn';
 import { ROUTE_REGISTRY, getRouteByPath } from '@/app/config/routes';
 import { useNotificationPipeline } from '@/app/providers/NotificationContext';
+import { useNotifications } from '@/entities/notification/hooks/useNotifications';
 
 interface ShellProps {
     children: React.ReactNode;
 }
 
 export const Shell: React.FC<ShellProps> = ({ children }) => {
+    // Start notifications SSE connection stream inside the correct provider layout
+    useNotifications();
+
     const { 
         user, disconnect, accountInfo, currentChainId, switchChain 
     } = useBackendSmartAccount();
@@ -62,9 +66,9 @@ export const Shell: React.FC<ShellProps> = ({ children }) => {
             try {
                 setHealthStatus('checking');
                 const res = await apiClient.getHealthCheck();
-                if (res.success) {
+                if (res.status === 'UP') {
                     setHealthStatus('healthy');
-                    setDbStatus(res.data?.database || { status: 'up' });
+                    setDbStatus(res.checks?.database || { status: 'UP' });
                 } else {
                     setHealthStatus('unhealthy');
                 }

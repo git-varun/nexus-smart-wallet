@@ -2,8 +2,8 @@
 // src/entities/capability/model/CapabilityContext.tsx
 import React, { createContext, useContext, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getCapabilities } from '@/shared/api/capabilities';
-import { toCapabilities, FrontendCapabilities } from './adapter';
+import { apiClient } from '@/services/apiClient';
+import { FrontendCapabilities } from './adapter';
 import { QUERY_KEYS, QUERY_TIMES } from '@/shared/lib/reactQuery';
 
 export type FeatureType = 'sessionKeys' | 'batching' | 'deployment' | 'gasSponsorship';
@@ -25,7 +25,7 @@ export const CapabilityProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const { data: rawCapabilities, isLoading, error, refetch } = useQuery({
         queryKey: QUERY_KEYS.infrastructure.capabilities,
         queryFn: async () => {
-            const response = await getCapabilities();
+            const response = await apiClient.getCapabilities();
             if (response.success && response.data) {
                 return response.data;
             }
@@ -34,10 +34,7 @@ export const CapabilityProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         staleTime: QUERY_TIMES.STATIC_STALE,
     });
 
-    const capabilities = useMemo(() => {
-        if (!rawCapabilities) return null;
-        return toCapabilities(rawCapabilities);
-    }, [rawCapabilities]);
+    const capabilities = rawCapabilities || null;
 
     const hasCapability = useCallback((feature: FeatureType): boolean => {
         if (!capabilities) return false;

@@ -23,6 +23,7 @@ interface AccountGridProps {
     accounts: AccountData[];
     onSelectAccount: (accountId: string) => void;
     selectedAccountId?: string;
+    onCreateAccount?: () => void;
     className?: string;
 }
 
@@ -30,6 +31,7 @@ export const AccountGrid: React.FC<AccountGridProps> = ({
                                                             accounts,
                                                             onSelectAccount,
                                                             selectedAccountId,
+                                                            onCreateAccount,
                                                             className
                                                         }) => {
 
@@ -66,14 +68,14 @@ export const AccountGrid: React.FC<AccountGridProps> = ({
                         <svg className="w-8 h-8 text-muted-foreground" fill="none" stroke="currentColor"
                              viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                  d="12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                         </svg>
                     </div>
                     <h3 className="text-lg font-semibold text-foreground mb-2">No Smart Accounts</h3>
                     <p className="text-muted-foreground mb-4">
                         Create your first smart account to get started with Web3 transactions
                     </p>
-                    <Button variant="primary" glow>
+                    <Button variant="primary" glow onClick={onCreateAccount}>
                         Create Smart Account
                     </Button>
                 </Card>

@@ -105,22 +105,22 @@ export const DeveloperConsole: React.FC = () => {
         const start = performance.now();
         try {
             const readinessRes = await apiClient.getReadiness();
-            if (readinessRes.success && readinessRes.data) {
-                setHealthChecks(readinessRes.data.checks || {});
-                setHealthStatus(readinessRes.data.status || 'DOWN');
-            } else {
-                setHealthStatus('DOWN');
-            }
+            setHealthChecks(readinessRes.checks || {});
+            setHealthStatus(readinessRes.status || 'DOWN');
 
             const livenessRes = await apiClient.getLiveness();
-            setLivenessStatus(livenessRes.success && livenessRes.data?.status === 'UP' ? 'UP' : 'DOWN');
+            setLivenessStatus(livenessRes.status === 'UP' ? 'UP' : 'DOWN');
 
             const startupRes = await apiClient.getStartup();
-            setStartupStatus(startupRes.success && startupRes.data?.status === 'UP' ? 'UP' : 'DOWN');
+            setStartupStatus(startupRes.status === 'UP' ? 'UP' : 'DOWN');
 
-            const gasRes = await apiClient.request<any>(`/api/transactions/gas_price?chainId=${currentChainId || 84532}&bundlerID=ALCHEMY`);
+            const gasRes = await apiClient.getGasPrice(currentChainId || 84532, 'ALCHEMY');
             if (gasRes.success && gasRes.data) {
-                setGasPriceGwei(gasRes.data.gasPriceGwei || '0');
+                setGasPriceGwei(
+                    typeof gasRes.data.gasPriceGwei === 'string'
+                        ? gasRes.data.gasPriceGwei
+                        : '0'
+                );
             }
 
             const latency = Math.round(performance.now() - start);
@@ -130,12 +130,8 @@ export const DeveloperConsole: React.FC = () => {
             // Optionally fetch Prometheus raw metrics
             if (metricsKey) {
                 const metricsRes = await apiClient.getMetrics(metricsKey);
-                if (metricsRes.success) {
-                    setRawMetrics(metricsRes.data);
-                    localStorage.setItem('nexus-metrics-key', metricsKey);
-                } else {
-                    setRawMetrics(null);
-                }
+                setRawMetrics(metricsRes);
+                localStorage.setItem('nexus-metrics-key', metricsKey);
             }
         } catch (error) {
             console.error('Failed retrieving health data:', error);

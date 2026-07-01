@@ -1,5 +1,7 @@
 // src/shared/api/client.ts
-export interface ApiResponse<T = any> {
+import { ApiContractError, ContractValidator } from './contracts';
+
+export interface ApiResponse<T = unknown> {
     success: boolean;
     data?: T;
     error?: {
@@ -36,15 +38,41 @@ export const errorTelemetry: ErrorRecord[] = [];
 
 export const recordError = (
     category: ErrorRecord['category'],
-    message: string,
+    message: unknown,
     code?: string,
     status?: number,
     stack?: string
 ) => {
+    // Safely normalize all message types
+    let normalizedMessage = 'Unknown error';
+    try {
+        if (typeof message === 'string') {
+            normalizedMessage = message;
+        } else if (message instanceof Error) {
+            normalizedMessage = message.message;
+        } else if (message && typeof message === 'object') {
+            const obj = message as Record<string, unknown>;
+            if (typeof obj.message === 'string') {
+                normalizedMessage = obj.message;
+            } else {
+                normalizedMessage = JSON.stringify(message);
+            }
+        } else if (message !== null && message !== undefined) {
+            normalizedMessage = String(message);
+        }
+    } catch {
+        normalizedMessage = 'Error message normalization failed';
+    }
+
     // Scrub authorization secrets or session keys from messages
-    const cleanMessage = message
-        .replace(/bearer\s+[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED_SECRET]')
-        .replace(/0x[a-fA-F0-9]{64}/g, '0x[REDACTED_HEX]');
+    let cleanMessage = normalizedMessage;
+    try {
+        cleanMessage = normalizedMessage
+            .replace(/bearer\s+[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED_SECRET]')
+            .replace(/0x[a-fA-F0-9]{64}/g, '0x[REDACTED_HEX]');
+    } catch {
+        // Fallback if replace fails
+    }
         
     const newError: ErrorRecord = {
         id: Math.random().toString(36).substring(2, 9),
@@ -95,11 +123,12 @@ const recordTelemetry = (
 };
 
 export class ApiClient {
-    private baseUrl: string;
+    readonly baseUrl: string;
     private refreshPromise: Promise<string | null> | null = null;
 
     constructor() {
-        this.baseUrl = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:3000';
+        const meta = import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } };
+        this.baseUrl = meta.env?.VITE_API_BASE_URL || 'http://localhost:3000';
     }
 
     private async performRefresh(): Promise<string | null> {
@@ -123,6 +152,7 @@ export class ApiClient {
                 const { token, refreshToken: newRefreshToken } = data.data;
                 localStorage.setItem('nexus_auth_token', token);
                 localStorage.setItem('nexus_refresh_token', newRefreshToken);
+                window.dispatchEvent(new CustomEvent('nexus-token-refreshed', { detail: { token } }));
                 return token;
             }
             return null;
@@ -134,7 +164,43 @@ export class ApiClient {
         }
     }
 
-    async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+    private validateEnvelope<T>(
+        endpoint: string,
+        payload: unknown,
+        validateData?: ContractValidator<T>
+    ): ApiResponse<T> {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            throw new ApiContractError(endpoint, 'response', 'expected an object envelope');
+        }
+        const envelope = payload as Record<string, unknown>;
+        if (typeof envelope.success !== 'boolean') {
+            throw new ApiContractError(endpoint, 'response.success', 'expected a boolean');
+        }
+        if (envelope.success && validateData) {
+            try {
+                (validateData as (value: unknown, path?: string) => void)(envelope.data, 'response.data');
+            } catch (error) {
+                throw new ApiContractError(
+                    endpoint,
+                    'response.data',
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+        }
+        return payload as ApiResponse<T>;
+    }
+
+    private reportContractError(error: ApiContractError): never {
+        console.error(error.message, { endpoint: error.endpoint, path: error.contractPath });
+        recordError('Validation', error.message, 'API_CONTRACT_VIOLATION', undefined, error.stack);
+        throw error;
+    }
+
+    async request<T>(
+        endpoint: string,
+        options: RequestInit = {},
+        validateData?: ContractValidator<T>
+    ): Promise<ApiResponse<T>> {
         const url = `${this.baseUrl}${endpoint}`;
         const start = performance.now();
         const timestamp = new Date().toISOString();
@@ -170,7 +236,7 @@ export class ApiClient {
         const isMutation = config.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method.toUpperCase());
         const maxRetries = isMutation ? 0 : 2;
         let attempt = 0;
-        let lastError: any = null;
+        let lastError: unknown = null;
 
         while (attempt <= maxRetries) {
             try {
@@ -198,7 +264,7 @@ export class ApiClient {
                         if (retryResponse.ok) {
                             const retryData = await retryResponse.json();
                             recordTelemetry(endpoint, method, start, timestamp, retryResponse.status, true, attempt);
-                            return retryData;
+                            return this.validateEnvelope(endpoint, retryData, validateData);
                         }
                     } else {
                         console.warn('⚠️ HTTP 401 Unauthorized. Cleared session keys.');
@@ -220,7 +286,14 @@ export class ApiClient {
                     let errorCode = 'HTTP_ERROR';
                     try {
                         const errorData = await response.json();
-                        errorMsg = errorData.error?.message || errorMsg;
+                        const rawMessage = errorData.error?.message;
+                        if (typeof rawMessage === 'string') {
+                            errorMsg = rawMessage;
+                        } else if (rawMessage && typeof rawMessage === 'object') {
+                            errorMsg = rawMessage.message || JSON.stringify(rawMessage);
+                        } else if (rawMessage !== null && rawMessage !== undefined) {
+                            errorMsg = String(rawMessage);
+                        }
                         errorCode = errorData.error?.code || errorCode;
                     } catch {
                         // ignore parsing error
@@ -242,9 +315,12 @@ export class ApiClient {
 
                 const data = await response.json();
                 recordTelemetry(endpoint, method, start, timestamp, response.status, true, attempt);
-                return data;
+                return this.validateEnvelope(endpoint, data, validateData);
 
             } catch (error) {
+                if (error instanceof ApiContractError) {
+                    this.reportContractError(error);
+                }
                 lastError = error;
                 console.error(`Request attempt ${attempt + 1} failed for ${endpoint}:`, error);
 
@@ -269,6 +345,41 @@ export class ApiClient {
                 status: 0
             }
         };
+    }
+
+    async requestRaw<T>(
+        endpoint: string,
+        options: RequestInit = {},
+        validate: ContractValidator<T>
+    ): Promise<T> {
+        const url = `${this.baseUrl}${endpoint}`;
+        const start = performance.now();
+        const timestamp = new Date().toISOString();
+        const method = options.method || 'GET';
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const payload: unknown = await response.json();
+            try {
+                validate(payload, 'response');
+            } catch (error) {
+                throw new ApiContractError(
+                    endpoint,
+                    'response',
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+            recordTelemetry(endpoint, method, start, timestamp, response.status, true, 0);
+            return payload;
+        } catch (error) {
+            if (error instanceof ApiContractError) this.reportContractError(error);
+            const message = error instanceof Error ? error.message : String(error);
+            recordError('Network', message, 'NETWORK_ERROR', 0, error instanceof Error ? error.stack : undefined);
+            recordTelemetry(endpoint, method, start, timestamp, 0, false, 0);
+            throw error;
+        }
     }
 }
 

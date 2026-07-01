@@ -7,15 +7,17 @@ import { Shell } from './Shell';
 import { StateView } from '@/shared/ui/StateView';
 import { PageErrorBoundary } from './ErrorBoundary';
 import { useBackendSmartAccount } from '@/entities/wallet/hooks/useBackendSmartAccount.ts';
-import { useNotifications } from '@/entities/notification/hooks/useNotifications';
+
+import { WagmiProvider } from 'wagmi';
+import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { config } from '@/app/config/wagmi';
+import { CapabilityProvider } from '@/entities/capability/model/CapabilityContext';
+import { NotificationProvider } from '@/app/providers/NotificationContext';
 
 export const MainLayout: React.FC = () => {
     const { isAuthenticated, loading, loginWithCredentials } = useBackendSmartAccount();
-    
-    // Start notifications stream when authenticated
-    useNotifications();
 
-    const handleAuthSuccess = async (userData: { user: any; token: string }) => {
+    const handleAuthSuccess = async (userData: { user: any; token: string; refreshToken?: string }) => {
         try {
             await loginWithCredentials(userData);
         } catch (error) {
@@ -39,16 +41,22 @@ export const MainLayout: React.FC = () => {
 
     // Authenticated layout shell routing
     return (
-        <>
-            <Shell>
-                <Suspense fallback={<div className="p-8"><StateView type="loading" /></div>}>
-                    <PageErrorBoundary>
-                        <Outlet />
-                    </PageErrorBoundary>
-                </Suspense>
-            </Shell>
-            <NetworkStatus />
-        </>
+        <WagmiProvider config={config}>
+            <RainbowKitProvider>
+                <CapabilityProvider>
+                    <NotificationProvider>
+                        <Shell>
+                            <Suspense fallback={<div className="p-8"><StateView type="loading" /></div>}>
+                                <PageErrorBoundary>
+                                    <Outlet />
+                                </PageErrorBoundary>
+                            </Suspense>
+                        </Shell>
+                        <NetworkStatus />
+                    </NotificationProvider>
+                </CapabilityProvider>
+            </RainbowKitProvider>
+        </WagmiProvider>
     );
 };
 export default MainLayout;

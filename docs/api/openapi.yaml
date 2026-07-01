@@ -1,0 +1,80 @@
+openapi: 3.0.3
+info:
+  title: Nexus Smart Wallet API Spec
+  description: Canonical OpenAPI spec for the Nexus Smart Wallet backend engine.
+  version: 1.0.0
+servers:
+  - url: /api
+paths:
+  /auth/register:
+    post:
+      summary: User Register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                username:
+                  type: string
+      responses:
+        '200':
+          description: Successful Registration
+  /auth/login:
+    post:
+      summary: User Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Successful Authentication
+  /accounts/create:
+    post:
+      summary: Predict Smart Account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chainId, walletID, accountType]
+              properties:
+                chainId:
+                  type: integer
+                walletID:
+                  type: string
+                  enum: [ALCHEMY, SIMPLE, SAFE, KERNEL, BICONOMY, TRUST]
+                accountType:
+                  type: string
+      responses:
+        '200':
+          description: Predicted smart wallet details
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

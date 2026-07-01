@@ -72,6 +72,7 @@ const accountSchema = new Schema<IAccount>({
 accountSchema.index({ address: 1 });
 accountSchema.index({ userId: 1, chainId: 1 });
 accountSchema.index({ address: 1, chainId: 1 }, { unique: true });
+accountSchema.index({ userId: 1, chainId: 1, walletID: 1, accountType: 1 }, { unique: true });
 
 accountSchema.set('toJSON', {
     transform: function (_doc, ret) {

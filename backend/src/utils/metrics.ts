@@ -37,6 +37,15 @@ export class MetricsCollector {
     public dbQueryLatency = new RollingAverage(100);
     public dbSlowQueries = 0;
 
+    // Redis Latency
+    public redisLatency = new RollingAverage(100);
+
+    // Queue & Execution Latencies
+    public queueProcessingTime = new RollingAverage(100);
+    public transactionDuration = new RollingAverage(100);
+    public walletDeploymentDuration = new RollingAverage(100);
+    public errorCount = 0;
+
     private constructor() {}
 
     public static getInstance(): MetricsCollector {
@@ -75,6 +84,26 @@ export class MetricsCollector {
         if (latencyMs > 100) {
             this.dbSlowQueries += 1;
         }
+    }
+
+    public trackRedisCall(latencyMs: number) {
+        this.redisLatency.add(latencyMs);
+    }
+
+    public trackQueueProcessing(latencyMs: number) {
+        this.queueProcessingTime.add(latencyMs);
+    }
+
+    public trackTransactionDuration(latencyMs: number) {
+        this.transactionDuration.add(latencyMs);
+    }
+
+    public trackWalletDeployment(latencyMs: number) {
+        this.walletDeploymentDuration.add(latencyMs);
+    }
+
+    public trackError() {
+        this.errorCount += 1;
     }
 
     public async getMetricsPayload() {
@@ -133,6 +162,15 @@ export class MetricsCollector {
                 slowQueriesCount: this.dbSlowQueries,
                 connectionStatus: dbStatus,
                 connectionPoolSize: mongoose.connection.db ? (await mongoose.connection.db.admin().serverStatus()).connections.current : 0
+            },
+            redis: {
+                averageLatencyMs: Math.round(this.redisLatency.get() * 100) / 100
+            },
+            performance: {
+                averageQueueProcessingTimeMs: Math.round(this.queueProcessingTime.get() * 100) / 100,
+                averageTransactionDurationMs: Math.round(this.transactionDuration.get() * 100) / 100,
+                averageWalletDeploymentDurationMs: Math.round(this.walletDeploymentDuration.get() * 100) / 100,
+                totalErrors: this.errorCount
             }
         };
     }

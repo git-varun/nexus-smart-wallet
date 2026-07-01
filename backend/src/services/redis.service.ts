@@ -1,49 +1,81 @@
 import Redis from "ioredis";
 import { config } from "../config/config";
-import { createServiceLogger } from "../utils/logger";
+import { createServiceLogger, metrics } from "../utils";
 
-const logger = createServiceLogger("RedisService");
+const logger = createServiceLogger("Redis");
 
 let redisClient: Redis | null = null;
 let redisConnected = false;
+let redisWasConnected = false;
 
 export function initializeRedis(): Redis | null {
     if (!config.redis.enabled) {
-        logger.info("Redis is disabled in configuration.");
+        logger.debug("Redis is disabled in configuration.");
         return null;
     }
 
     if (redisClient) return redisClient;
 
-    logger.info("🔌 Connecting to Redis...");
-    
     try {
         redisClient = new Redis(config.redis.uri, {
             maxRetriesPerRequest: 3,
             retryStrategy: (times) => {
                 const delay = Math.min(times * 200, 5000);
-                logger.warn(`Redis connection retry attempt ${times} after ${delay}ms`);
+                logger.warn(`Redis reconnect attempt ${times}`);
                 return delay;
             }
         });
 
+        // Wrap for slow command detection and latency tracking
+        const wrapCommand = (client: Redis, commandName: string) => {
+            const original = (client as any)[commandName];
+            if (typeof original !== 'function') return;
+            (client as any)[commandName] = async function(...args: any[]) {
+                const start = Date.now();
+                try {
+                    return await original.apply(this, args);
+                } finally {
+                    const duration = Date.now() - start;
+                    metrics.trackRedisCall(duration);
+                    
+                    const threshold = Number(process.env.LOG_SLOW_REDIS_MS) || 100;
+                    if (duration > threshold) {
+                        logger.warn(`Slow ${commandName.toUpperCase()} ${duration}ms`, {
+                            command: commandName.toUpperCase(),
+                            durationMs: duration
+                        });
+                    }
+                }
+            };
+        };
+
+        const slowRedisCommands = ['get', 'set', 'eval', 'evalsha'];
+        for (const cmd of slowRedisCommands) {
+            wrapCommand(redisClient, cmd);
+        }
+
         redisClient.on("connect", () => {
+            if (redisWasConnected) {
+                logger.info("Reconnected");
+            } else {
+                logger.info("Connected");
+                redisWasConnected = true;
+            }
             redisConnected = true;
-            logger.info("✅ Redis connected successfully");
         });
 
         redisClient.on("error", (error) => {
             redisConnected = false;
-            logger.error("❌ Redis connection error:", error);
+            logger.error("Unavailable", error instanceof Error ? error : new Error(String(error)));
         });
 
         redisClient.on("close", () => {
             redisConnected = false;
-            logger.warn("🛑 Redis connection closed");
+            logger.info("Disconnected");
         });
     } catch (err) {
         redisConnected = false;
-        logger.error("❌ Failed to instantiate Redis client:", err instanceof Error ? err : new Error(String(err)));
+        logger.error("Unavailable", err instanceof Error ? err : new Error(String(err)));
     }
 
     return redisClient;
@@ -69,6 +101,6 @@ export async function closeRedis(): Promise<void> {
         }
         redisClient = null;
         redisConnected = false;
-        logger.info("🛑 Redis disconnected");
+        logger.info("Disconnected");
     }
 }
