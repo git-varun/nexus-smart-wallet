@@ -49,6 +49,16 @@ Thumbs.db
 tmp/
 temp/
 
+# Test artifacts
+test-results/
+*/test-results/
+playwright-report/
+*/playwright-report/
+
+# Uploaded user content
+uploads/
+*/uploads/
+
 # Contract artifacts
 typechain-types/
 */typechain-types/

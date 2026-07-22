@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useBlockNumber } from 'wagmi';
+import { env } from '@/config/env';
 import { Page, Card } from '@/app/layouts/Layout';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
@@ -262,7 +263,7 @@ export const DeveloperConsole: React.FC = () => {
                     <div className="space-y-1">
                         <span className="text-[10px] text-muted-foreground uppercase font-extrabold tracking-wider">Active Environment</span>
                         <div className="text-sm font-bold text-foreground capitalize">
-                            {(import.meta as any).env.MODE || 'Production'} Mode
+                            {env.MODE} Mode
                         </div>
                     </div>
                     <Cpu className="w-5 h-5 text-primary shrink-0" />
@@ -456,7 +457,7 @@ export const DeveloperConsole: React.FC = () => {
                                     </div>
                                     <div className="flex justify-between py-2">
                                         <span className="text-slate-400">Vite Bundle Mode:</span>
-                                        <span className="text-foreground">{(import.meta as any).env.MODE || 'Production'}</span>
+                                        <span className="text-foreground">{env.MODE}</span>
                                     </div>
                                 </div>
                             </Card>
@@ -871,7 +872,7 @@ export const DeveloperConsole: React.FC = () => {
                                             <span>Err Code: {err.code || 'HTTP_ERROR'}</span>
                                             <span>HTTP Status: {err.status || 0}</span>
                                         </div>
-                                        {err.stack && (import.meta as any).env.DEV && (
+                                        {err.stack && env.DEV && (
                                             <details className="mt-2 text-[9px] text-slate-400 cursor-pointer">
                                                 <summary className="font-bold outline-none select-none">View Stack Trace (Dev Mode)</summary>
                                                 <pre className="mt-1 bg-slate-950 p-2 rounded overflow-x-auto text-[8px] leading-tight select-text">{err.stack}</pre>

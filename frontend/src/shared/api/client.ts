@@ -1,5 +1,6 @@
 // src/shared/api/client.ts
 import { ApiContractError, ContractValidator } from './contracts';
+import { env } from '@/config/env';
 
 export interface ApiResponse<T = unknown> {
     success: boolean;
@@ -127,8 +128,7 @@ export class ApiClient {
     private refreshPromise: Promise<string | null> | null = null;
 
     constructor() {
-        const meta = import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } };
-        this.baseUrl = meta.env?.VITE_API_BASE_URL || 'http://localhost:3000';
+        this.baseUrl = env.API_BASE_URL;
     }
 
     private async performRefresh(): Promise<string | null> {

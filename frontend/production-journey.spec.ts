@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import http from 'http';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = process.env.VITE_API_BASE_URL || 'http://localhost:3001';
 const UNIQUE_ID = Date.now();
 const EMAIL = `e2e_journey_${UNIQUE_ID}@example.com`;
 const PASSWORD = 'Password123!';

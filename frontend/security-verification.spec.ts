@@ -1,7 +1,7 @@
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 
-const BASE_URL = 'http://localhost:8080';
-const API_URL = 'http://localhost:3001';
+const BASE_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:8080';
+const API_URL = process.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 test.describe.configure({ mode: 'serial' });
 
