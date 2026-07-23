@@ -29,15 +29,14 @@ nexus-smart-wallet/
 
 ## Documentation Directory
 
-The authoritative documentation is hosted in the `/docs` directory. Please consult the specific guides below:
+The authoritative documentation is hosted in the [`/docs`](docs/README.md) directory. Please consult the specific guides below:
 
-1. **[Canonical Architecture Guide](docs/architecture_guide.md):** Deep dive into core services (worker, queue, signing), portfolio caches, notification system, and transaction lifecycle.
-2. **[Canonical API Reference](docs/api_reference.md):** Complete specifications of REST endpoints, schemas, validation rules, and response shapes.
-3. **[Deployment & Operational Runbook](docs/operations_runbook.md):** Detailed environment configurations, system check commands, logging policies, and failover/rollback procedures.
-4. **[Security Architecture Guide](docs/security_guide.md):** Details on the cryptographic session key validation model, JWT authentication, rate limiting, and log redactions.
-5. **[Integration & Testing Guide](docs/testing_guide.md):** Testing methodology, programmatic Anvil setups, MongoDB Memory Server integration, and mock isolation policies.
-6. **[Release Notes & Changelog](docs/release_notes.md):** Summary of Release Candidate 1 (RC1) improvements and production capabilities. See also the root [CHANGELOG.md](CHANGELOG.md).
-7. **[Curated Production Backlog](docs/production_backlog.md):** Structured backlog of future security additions, engineering improvements, and operational optimizations.
+1. **[Canonical Architecture Guide](docs/architecture/system-overview.md):** Deep dive into core services (worker, queue, signing), portfolio caches, notification system, and transaction lifecycle.
+2. **[Canonical API Reference](docs/api/overview.md):** Complete specifications of REST endpoints, schemas, validation rules, and response shapes.
+3. **[Deployment & Operational Runbook](docs/operations/runbook.md):** Detailed environment configurations, system check commands, logging policies, and failover/rollback procedures.
+4. **[Security Architecture Guide](docs/security/authentication.md):** Details on the cryptographic session key validation model, JWT authentication, rate limiting, and log redactions.
+5. **[Integration & Testing Guide](docs/testing/strategy.md):** Testing methodology, programmatic Anvil setups, MongoDB Memory Server integration, and mock isolation policies.
+6. **[Release Notes & Changelog](docs/reference/changelog.md):** Summary of Release Candidate 1 (RC1) improvements and production capabilities. See also the root [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
